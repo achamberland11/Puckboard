@@ -1,6 +1,5 @@
 body {
-  font-family: var(--font-family);
-  margin: 0;
+  font-family: var(--font-family);  margin: 0;
   padding: 2rem;
   background:
     radial-gradient(
@@ -192,4 +191,31 @@ option {
 .weight-input input:focus {
   outline: none;
   border-color: var(--color-accent);
+}
+
+/* Global thin dark scrollbars (Firefox baseline + Chromium/Safari polish). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-card-stat-bg) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-card-stat-bg);
+  border-radius: var(--border-radius-sm);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+  background-clip: content-box;
 }

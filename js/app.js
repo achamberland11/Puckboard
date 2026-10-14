@@ -493,4 +493,8 @@ function buildWeightsPanel() {
 })();
 
 
-export { seasons, seasonDataPlayer, seasonDataGoaler };
+export { seasons, seasonDataPlayer, seasonDataGoaler, getCurrentSeason };
+
+function getCurrentSeason() {
+  return season;
+}

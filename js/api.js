@@ -334,6 +334,7 @@ function trimMoneyPuckSkater(headers, cells) {
     sog: pick(["i_f_shotsonGoal".toLowerCase(), "i_f_shotsongoal"]),
     onIceG: pick(["onice_f_goals"]),
     xgPct: pick(["onice_xgoalspercentage", "onice_xgoals_percent", "onice_xg_pct"]),
+    offXgPct: pick(["office_xgoalspercentage", "office_xgoals_percent", "office_xg_pct"]),
     hds: pick(["i_f_highdangershots"]),
     hdxg: pick(["i_f_highdangerxgoals"]),
   };
@@ -408,7 +409,7 @@ async function fetchMoneyPuckCSV(season, kind) {
 async function loadMoneyPuckIndexed(season, kind, trim) {
   // Cache the trimmed per-player index (small) rather than the raw CSV text,
   // so repeat card opens skip both the download and the parse.
-  const key = CACHE_KEY + "_mpidx_" + kind + "_" + season;
+  const key = CACHE_KEY + "_mpidx2_" + kind + "_" + season;
   try {
     const cached = await storageGet(key);
     if (
@@ -458,8 +459,84 @@ async function loadMoneyPuckGoalies(season) {
   }
 }
 
-async function loadEdgeGoalieDetail(playerId, season) {
+function trimMoneyPuckGame(headers, cells) {
+  const pick = (cands) => {
+    const i = findCol(headers, cands);
+    return i === -1 ? null : numOrNull(cells[i]);
+  };
+  const get = (cands) => {
+    const i = findCol(headers, cands);
+    return i === -1 ? "" : String(cells[i] ?? "");
+  };
+  return {
+    date: get(["gamedate", "game_date", "date"]),
+    situation: get(["situation"]).toLowerCase(),
+    xg: pick(["i_f_xgoals", "i_f_scorevenueadjustedxgoals"]),
+    g: pick(["i_f_goals"]),
+  };
+}
+
+async function loadMoneyPuckGameLog(playerId, season) {
+  // Per-game xG for the Last-5 table: one small (~250KB) per-player file.
+  // Returns { byDate: { YYYYMMDD: { all, ev } } } or null when unavailable.
+  const key = CACHE_KEY + "_mpgamelog_" + season + "_" + playerId;
   try {
+    const cached = await storageGet(key);
+    if (
+      cached &&
+      typeof cached === "object" &&
+      cached.data !== undefined &&
+      Date.now() - cached.timestamp < (cached.ttl || CACHE_TTL)
+    ) {
+      return cached.data;
+    }
+  } catch (err) {
+    console.error("Cache read failed:", key, err);
+  }
+  try {
+    const year = String(season).slice(0, 4);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000);
+    let text;
+    try {
+      const response = await fetch(
+        `/moneypuck/playerData/playerGameByGame/${year}/regular/${playerId}.csv`,
+        { signal: ctrl.signal },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      text = await response.text();
+    } finally {
+      clearTimeout(timer);
+    }
+    const rows = parseCSV(text);
+    if (rows.length < 2) return null;
+    const headers = rows[0].map((h) => String(h).trim().toLowerCase());
+    const byDate = {};
+    for (let i = 1; i < rows.length; i++) {
+      const r = trimMoneyPuckGame(headers, rows[i]);
+      if (!r.date) continue;
+      if (!byDate[r.date]) byDate[r.date] = {};
+      if (r.situation === "5on5") byDate[r.date].ev = r;
+      else if (r.situation === "all") byDate[r.date].all = r;
+    }
+    const result = { byDate };
+    try {
+      await storageSet(key, {
+        data: result,
+        timestamp: Date.now(),
+        ttl: CACHE_TTL,
+      });
+    } catch (err) {
+      console.error("Cache write failed:", key, err);
+    }
+    return result;
+  } catch (err) {
+    console.error("Failed to load MoneyPuck game log:", err);
+    return null;
+  }
+}
+
+async function loadEdgeGoalieDetail(playerId, season) {  try {
     const url = `/api-web/v1/edge/goalie-detail/${playerId}/${season}/2`;
     return await fetchWithCache(
       url,
@@ -483,6 +560,7 @@ export {
   loadSkaterAdvanced,
   loadMoneyPuckSkaters,
   loadMoneyPuckGoalies,
+  loadMoneyPuckGameLog,
   loadEdgeGoalieDetail,
   removeCacheKeys,
   TEAM_SLUGS,

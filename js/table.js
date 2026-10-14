@@ -529,7 +529,14 @@ function buildTable(data, options = {}) {
 
         if (col === "Joueurs" || col === "Gardiens") {
           td.classList.add("cell-name");
-          td.addEventListener("click", () => openPlayerCard(item));
+          td.addEventListener("click", () => {
+            // Side-panel navigation list: same players, same order as the
+            // table (hidden players excluded, unless in the Removed view).
+            const navList = data.filter(
+              (p) => options.showHidden || !hiddenPlayers.has(p.ID),
+            );
+            openPlayerCard(item, navList);
+          });
         }
 
         tr.appendChild(td);

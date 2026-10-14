@@ -1,10 +1,11 @@
-import { seasons, seasonDataPlayer, seasonDataGoaler } from "./app.js";
+import { seasons, seasonDataPlayer, seasonDataGoaler, getCurrentSeason } from "./app.js";
 import {
   loadGameLog,
   loadPlayerLanding,
   loadSkaterAdvanced,
   loadMoneyPuckSkaters,
   loadMoneyPuckGoalies,
+  loadMoneyPuckGameLog,
   loadEdgeGoalieDetail,
 } from "./api.js";
 import {
@@ -13,6 +14,7 @@ import {
   careerSkaterShot,
   careerSkaterRates,
   careerGoalieSave,
+  seasonAdvCells,
   arrowChar,
 } from "./sustainability.js";
 import { FIELD_INFO, SECTION_INFO } from "./fields.js";
@@ -211,7 +213,7 @@ function buildSeasonsStatsSection(playerID, seasons, seasonData, goalie) {
   const headerRow = document.createElement("tr");
   const headers = goalie
     ? ["Season", "Team", "GP", "W", "SV%", "GAA", "GVI", "Tier"]
-    : ["Season", "Team", "GP", "G", "A", "P", "PPP", "+/-", "TOI", "GVI", "Tier"];
+    : ["Season", "Team", "GP", "G", "A", "P", "PPP", "+/-", "SH%", "ixG", "xGF%", "RXGF%", "TOI", "GVI", "Tier"];
   headers.forEach((h) => {
     const th = document.createElement("th");
     th.textContent = h;
@@ -222,6 +224,9 @@ function buildSeasonsStatsSection(playerID, seasons, seasonData, goalie) {
   thead.appendChild(headerRow);
   table.appendChild(thead);
 
+  // Advanced cells fill in once the per-season MoneyPuck indexes arrive
+  // (keyed by season); "…" until then, "—" when a season has no data.
+  const advCells = new Map();
   const tbody = document.createElement("tbody");
   for (const season of seasons) {
     const tr = document.createElement("tr");
@@ -241,6 +246,8 @@ function buildSeasonsStatsSection(playerID, seasons, seasonData, goalie) {
         player.Tier,
       ];
     } else {
+      const g = Number(player.G) || 0;
+      const s = Number(player.S) || 0;
       cells = [
         formatSeason(season),
         player.Team,
@@ -250,21 +257,43 @@ function buildSeasonsStatsSection(playerID, seasons, seasonData, goalie) {
         player.P,
         player.PPP,
         player["+/-"],
+        s > 0 ? `${((g / s) * 100).toFixed(1)}%` : "—",
+        "…",
+        "…",
+        "…",
         player.TOI,
         player.GVI,
         player.Tier,
       ];
     }
-    cells.forEach((c) => {
+    const tds = cells.map((c) => {
       const td = document.createElement("td");
       td.textContent = c;
       tr.appendChild(td);
+      return td;
     });
+    if (!goalie) advCells.set(season, tds.slice(9, 12));
     tbody.appendChild(tr);
   };
   table.appendChild(tbody);
   section.appendChild(table);
-  return section;
+  return { section, advCells };
+}
+
+function fillSeasonsAdvCells(advCells, mpBySeason) {
+  // mpBySeason: Map-like season -> MoneyPuck index entry (or plain object).
+  if (!advCells) return;
+  for (const [season, tds] of advCells) {
+    const entry =
+      typeof mpBySeason?.get === "function"
+        ? mpBySeason.get(season)
+        : mpBySeason?.[season];
+    const vals = entry ? seasonAdvCells(entry) : null;
+    const [ixg, xgf, rel] = [vals?.ixg ?? "—", vals?.xgf ?? "—", vals?.rel ?? "—"];
+    tds[0].textContent = ixg;
+    tds[1].textContent = xgf;
+    tds[2].textContent = rel;
+  }
 }
 
 function buildLast5Section(last5, goalie) {
@@ -285,7 +314,7 @@ function buildLast5Section(last5, goalie) {
   const headerRow = document.createElement("tr");
   const headers = goalie
     ? ["Date", "Opp", "W/L", "SV%", "GAA", "TOI"]
-    : ["Date", "Opp", "G", "A", "P", "PPG", "+/-", "TOI"];
+    : ["Date", "Opp", "G", "A", "P", "PPG", "+/-", "ixG", "TOI"];
   headers.forEach((h) => {
     const th = document.createElement("th");
     th.textContent = h;
@@ -296,6 +325,8 @@ function buildLast5Section(last5, goalie) {
   thead.appendChild(headerRow);
   table.appendChild(thead);
 
+  // ixG cells fill in once the per-game MoneyPuck log arrives.
+  const ixgCells = [];
   const tbody = document.createElement("tbody");
   last5.slice(0, 5).forEach((game) => {
     const tr = document.createElement("tr");
@@ -319,19 +350,32 @@ function buildLast5Section(last5, goalie) {
         pts,
         game.powerPlayGoals,
         game.plusMinus ?? "-",
+        "…",
         game.toi || "-",
       ];
     }
-    cells.forEach((c) => {
+    const tds = cells.map((c) => {
       const td = document.createElement("td");
       td.textContent = c;
       tr.appendChild(td);
+      return td;
     });
+    if (!goalie) ixgCells.push({ date: game.gameDate, td: tds[7] });
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
   section.appendChild(table);
-  return section;
+  return { section, ixgCells };
+}
+
+function fillLast5IxG(ixgCells, mpGameLog) {
+  // NHL dates are YYYY-MM-DD; MoneyPuck keys are YYYYMMDD.
+  if (!ixgCells) return;
+  for (const { date, td } of ixgCells) {
+    const key = String(date || "").replaceAll("-", "");
+    const rec = mpGameLog?.byDate?.[key]?.all || null;
+    td.textContent = rec?.xg != null ? rec.xg.toFixed(1) : "—";
+  }
 }
 
 const GAME_KEYS = {
@@ -623,7 +667,7 @@ function renderLuckRows(tbody, rows) {
   }
 }
 
-async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie) {
+async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks = {}) {
   const season = findCardSeason(playerID, goalie);
   if (!season || !tablePlayer) {
     tbody.textContent = "";
@@ -680,6 +724,11 @@ async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie) {
         );
       };
       render();
+      hooks.seasonsFill?.({ [season]: mpMap[playerID] });
+      // Per-game xG for Last 5 resolves independently (own small file).
+      loadMoneyPuckGameLog(playerID, season).then((g) =>
+        hooks.last5Fill?.(g),
+      );
       // Phase 2: history for seasons the player actually played — upgrades
       // the c-avg benchmarks on IPP/OISH%/PDO. Never blocks the section:
       // failures keep the phase-1 rows.
@@ -702,6 +751,11 @@ async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie) {
               playerID,
             ),
           );
+          const combined = { [season]: mpMap[playerID] };
+          played.forEach((s, i) => {
+            combined[s] = mpH[i][playerID];
+          });
+          hooks.seasonsFill?.(combined);
         } catch (err) {
           console.error("Failed to load career rates:", err);
         }
@@ -719,7 +773,7 @@ async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie) {
   }
 }
 
-function buildAdvancedSection(playerID, tablePlayer, goalie) {
+function buildAdvancedSection(playerID, tablePlayer, goalie, hooks = {}) {
   const section = document.createElement("div");
   section.className = "player-card-section";
 
@@ -757,7 +811,7 @@ function buildAdvancedSection(playerID, tablePlayer, goalie) {
   table.appendChild(tbody);
   section.appendChild(table);
 
-  fillAdvancedSection(tbody, playerID, tablePlayer, goalie);
+  fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks);
   return section;
 }
 
@@ -790,7 +844,104 @@ function closeCard(overlay, keyHandler) {
   overlay.remove();
 }
 
-export async function populatePlayerCard(card, player, onClose) {
+function sideDisplayName(p) {
+  return p.Joueurs || p.Gardiens || "?";
+}
+
+function sidePositionLabel(p) {
+  return Array.isArray(p.Position) ? p.Position.join("/") : "G";
+}
+
+function buildSideAvatar(p, season) {
+  const wrap = document.createElement("span");
+  wrap.className = "side-avatar-wrap";
+
+  const fallback = document.createElement("span");
+  fallback.className = "side-avatar-fallback";
+  fallback.textContent = sideDisplayName(p)
+    .split(/\s+/)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  fallback.hidden = true;
+
+  const img = document.createElement("img");
+  img.className = "side-headshot";
+  img.alt = "";
+  img.loading = "lazy";
+  img.src = `https://assets.nhle.com/mugs/nhl/${season}/${p.Team}/${p.ID}.png`;
+  img.addEventListener(
+    "error",
+    () => {
+      img.hidden = true;
+      fallback.hidden = false;
+    },
+    { once: true },
+  );
+
+  wrap.appendChild(img);
+  wrap.appendChild(fallback);
+  return wrap;
+}
+
+function buildSidePanel(list, activeID, season, onSelect, onCollapse) {
+  const aside = document.createElement("div");
+  aside.className = "player-card-side";
+
+  const head = document.createElement("div");
+  head.className = "side-panel-head";
+  const collapseBtn = document.createElement("button");
+  collapseBtn.type = "button";
+  collapseBtn.className = "button side-toggle";
+  collapseBtn.textContent = "«";
+  collapseBtn.title = "Hide player list";
+  collapseBtn.addEventListener("click", onCollapse);
+  head.appendChild(collapseBtn);
+  aside.appendChild(head);
+
+  const scroller = document.createElement("div");
+  scroller.className = "player-card-side-list";
+
+  list.forEach((p, i) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "side-player" + (p.ID === activeID ? " side-active" : "");
+    item.title = sideDisplayName(p);
+
+    item.appendChild(buildSideAvatar(p, season));
+
+    const text = document.createElement("span");
+    text.className = "side-text";
+    const name = document.createElement("span");
+    name.className = "side-name";
+    name.textContent = sideDisplayName(p);
+    const sub = document.createElement("span");
+    sub.className = "side-sub";
+    sub.textContent = `${sidePositionLabel(p)} · #${i + 1}`;
+    text.appendChild(name);
+    text.appendChild(sub);
+    item.appendChild(text);
+
+    if (p.ID !== activeID) {
+      item.addEventListener("click", () => onSelect(p));
+    }
+    scroller.appendChild(item);
+  });
+
+  aside.appendChild(scroller);
+
+  requestAnimationFrame(() => {
+    const active = scroller.querySelector(".side-active");
+    if (active) active.scrollIntoView({ block: "nearest" });
+  });
+  return aside;
+}
+
+// Roster side panel open state persists across cards (user preference).
+let sidePanelOpen = true;
+
+export async function populatePlayerCard(card, player, onClose, navList) {
   const loading = document.createElement("div");
   loading.className = "player-card-loading";
   loading.textContent = "Loading...";
@@ -804,18 +955,50 @@ export async function populatePlayerCard(card, player, onClose) {
 
   card.textContent = "";
 
+  const main = document.createElement("div");
+  main.className = "player-card-main";
+
+  if (Array.isArray(navList) && navList.length > 0) {
+    const idx = navList.findIndex((p) => p.ID === player.ID);
+    const list = idx === -1 ? [player, ...navList] : navList;
+    const applySideState = () =>
+      card.classList.toggle("side-collapsed", !sidePanelOpen);
+    card.appendChild(
+      buildSidePanel(list, player.ID, getCurrentSeason(), (p) =>
+        populatePlayerCard(card, p, onClose, navList),
+      () => {
+        sidePanelOpen = false;
+        applySideState();
+      }),
+    );
+    const reopenBtn = document.createElement("button");
+    reopenBtn.type = "button";
+    reopenBtn.className = "button side-reopen";
+    reopenBtn.textContent = "»";
+    reopenBtn.title = "Show player list";
+    reopenBtn.addEventListener("click", () => {
+      sidePanelOpen = true;
+      applySideState();
+    });
+    card.appendChild(reopenBtn);
+    applySideState();
+  } else {
+    card.classList.remove("side-collapsed");
+  }
+  card.appendChild(main);
+
   const closeBtn = document.createElement("button");
   closeBtn.className = "player-card-close";
   closeBtn.textContent = "\u00d7";
   closeBtn.addEventListener("click", () => onClose());
-  card.appendChild(closeBtn);
+  main.appendChild(closeBtn);
 
-  card.appendChild(buildHeaderSection(data, player.Tier));
+  main.appendChild(buildHeaderSection(data, player.Tier));
 
   const playerBody = document.createElement("div");
   playerBody.textContent = "";
   playerBody.className = "player-card-body";
-  card.appendChild(playerBody);
+  main.appendChild(playerBody);
 
   const statsContainer = document.createElement("div");
   statsContainer.textContent = "";
@@ -824,16 +1007,16 @@ export async function populatePlayerCard(card, player, onClose) {
 
   const goalie = isGoalie(data);
 
-  const seasonsSection = buildSeasonsStatsSection(
+  const seasonsBuilt = buildSeasonsStatsSection(
     data.playerId,
     seasons,
     goalie ? seasonDataGoaler : seasonDataPlayer,
     goalie,
   );
-  if (seasonsSection) statsContainer.appendChild(seasonsSection);
+  if (seasonsBuilt) statsContainer.appendChild(seasonsBuilt.section);
 
-  const last5Section = buildLast5Section(data.last5Games, goalie);
-  if (last5Section) statsContainer.appendChild(last5Section);
+  const last5Built = buildLast5Section(data.last5Games, goalie);
+  if (last5Built) statsContainer.appendChild(last5Built.section);
 
   const awardsSection = buildAwardsSection(data.awards);
   if (awardsSection) statsContainer.appendChild(awardsSection);
@@ -851,7 +1034,14 @@ export async function populatePlayerCard(card, player, onClose) {
   );
   if (graphSection) graphContainer.appendChild(graphSection);
 
-  const advancedSection = buildAdvancedSection(data.playerId, player, goalie);
+  // Progressive advanced fills: season-table and last-5 cells resolve from
+  // the same per-season MoneyPuck loads as the Luck Check section.
+  const advHooks = {
+    seasonsFill: (mpBySeason) =>
+      fillSeasonsAdvCells(seasonsBuilt?.advCells, mpBySeason),
+    last5Fill: (mpGameLog) => fillLast5IxG(last5Built?.ixgCells, mpGameLog),
+  };
+  const advancedSection = buildAdvancedSection(data.playerId, player, goalie, advHooks);
   if (advancedSection) graphContainer.appendChild(advancedSection);
 
   const slug =
@@ -860,16 +1050,33 @@ export async function populatePlayerCard(card, player, onClose) {
       .replace(/\s+/g, "-") +
     "-" +
     data.playerId;
+  const footer = document.createElement("div");
+  footer.className = "player-card-footer";
   const nhlLink = document.createElement("a");
   nhlLink.className = "player-card-nhl-link";
   nhlLink.href = `https://www.nhl.com/player/${slug}`;
   nhlLink.target = "_blank";
   nhlLink.title = "Open player's NHL.com page (new tab)";
   nhlLink.textContent = "View on NHL.com \u2192";
-  card.appendChild(nhlLink);
+  footer.appendChild(nhlLink);
+  const puckSlug = `${data.firstName.default} ${data.lastName.default}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const puckLink = document.createElement("a");
+  puckLink.className = "player-card-nhl-link";
+  puckLink.href = `https://puckpedia.com/player/${puckSlug}`;
+  puckLink.target = "_blank";
+  puckLink.title =
+    "Open player's PuckPedia page (new tab). Shared names need a -2 suffix.";
+  puckLink.textContent = "View on PuckPedia \u2192";
+  footer.appendChild(puckLink);
+  main.appendChild(footer);
 }
 
-export async function openPlayerCard(player) {
+export async function openPlayerCard(player, navList) {
   const overlay = document.createElement("div");
   overlay.className = "player-card-overlay";
 
@@ -887,5 +1094,5 @@ export async function openPlayerCard(player) {
     if (e.target === overlay) closeCard(overlay, keyHandler);
   });
 
-  await populatePlayerCard(card, player, () => closeCard(overlay, keyHandler));
+  await populatePlayerCard(card, player, () => closeCard(overlay, keyHandler), navList);
 }

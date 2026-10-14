@@ -110,7 +110,8 @@ export function careerSkaterShot(seasonData, seasons, playerId, isDefence) {
 // Career involvement / on-ice luck across every season on the site.
 // advMaps / mpMaps are parallel arrays aligned with `seasons`
 // (NHL report Maps and MoneyPuck index objects, as returned by the loaders).
-// IPP pools points over on-ice goals; OISH%/PDO are GP-weighted means.
+// IPP pools points over on-ice goals; OISH%/PDO are GP-weighted means;
+// ixG gap is the mean seasonal gap; assist mix pools 5v5 + PP primaries.
 export function careerSkaterRates(advMaps, mpMaps, seasons, playerId) {
   let ptsSum = 0;
   let oigSum = 0;
@@ -118,6 +119,10 @@ export function careerSkaterRates(advMaps, mpMaps, seasons, playerId) {
   let oishGP = 0;
   let pdoSum = 0;
   let pdoGP = 0;
+  let ixgGapSum = 0;
+  let ixgN = 0;
+  let ca1 = 0;
+  let ca2 = 0;
   for (let i = 0; i < (seasons || []).length; i++) {
     const adv = advMaps?.[i]?.get?.(playerId) || {};
     const mpEntry = mpMaps?.[i]?.[playerId];
@@ -126,6 +131,16 @@ export function careerSkaterRates(advMaps, mpMaps, seasons, playerId) {
       ptsSum += sit.pts;
       oigSum += sit.onIceG;
     }
+    if (sit?.g != null && sit?.xg != null) {
+      ixgGapSum += sit.g - sit.xg;
+      ixgN++;
+    }
+    ca1 +=
+      (num(adv.scoring?.primaryAssists5v5) || 0) +
+      (num(adv.pp?.ppPrimaryAssists) || 0);
+    ca2 +=
+      (num(adv.scoring?.secondaryAssists5v5) || 0) +
+      (num(adv.pp?.ppSecondaryAssists) || 0);
     const oish = num(adv.scoring?.onIceShootingPct5v5);
     if (oish != null) {
       const w = num(adv.scoring?.gamesPlayed) || 0;
@@ -143,10 +158,14 @@ export function careerSkaterRates(advMaps, mpMaps, seasons, playerId) {
     ipp: oigSum >= 5 ? ptsSum / oigSum : null,
     oish: oishGP > 0 ? oishSum / oishGP : null,
     pdo: pdoGP > 0 ? pdoSum / pdoGP : null,
+    ixgGap: ixgN >= 2 ? ixgGapSum / ixgN : null,
+    a1: ca1,
+    a2: ca2,
   };
 }
 
-export function careerGoalieSave(seasonData, seasons, playerId) {  let saSum = 0;
+export function careerGoalieSave(seasonData, seasons, playerId) {
+  let saSum = 0;
   let svSum = 0;
   for (const season of seasons || []) {
     const p = seasonData?.[season]?.find((r) => r.ID === playerId);
@@ -172,6 +191,25 @@ function rowShell(key, label, extra = {}) {
     small: false,
     note: "",
     ...extra,
+  };
+}
+
+// Season-table advanced cells from a per-season MoneyPuck index entry.
+// ixG is all-situations (matches the G column); xGF%/REL are 5v5 standard.
+export function seasonAdvCells(mpEntry) {
+  const all = mpEntry?.all || null;
+  const ev = mpEntry?.ev || null;
+  const ixg = all?.xg ?? null;
+  const xgf = ev?.xgPct ?? null;
+  const off = ev?.offXgPct ?? null;
+  const rel = xgf != null && off != null ? xgf - off : null;
+  return {
+    ixg: ixg != null ? ixg.toFixed(1) : "—",
+    xgf: xgf != null ? fmtPct(xgf) : "—",
+    rel:
+      rel != null
+        ? `${rel >= 0 ? "+" : ""}${(rel * 100).toFixed(1)}`
+        : "—",
   };
 }
 
@@ -238,18 +276,23 @@ export function skaterLuckRows({ row, adv = {}, mp, career, isDefence }) {
     const r = rowShell("ixg", "G vs ixG", { small });
     if (sit?.g != null && sit?.xg != null) {
       const gap = sit.g - sit.xg;
-      r.now = `${sit.g} G vs ${sit.xg.toFixed(1)} ixG (${fmtSigned(gap, 1)})`;
-      r.ref = sit === mp?.ev ? "5v5" : "all sits";
-      r.dir = dirOf(gap, 0.5);
-      if (gap >= T.ixgGap) {
+      const scope = sit === mp?.ev ? "5v5" : "all";
+      const cGap = career?.ixgGap ?? null;
+      const base = cGap ?? 0;
+      r.now = `${scope}: ${sit.g} G vs ${sit.xg.toFixed(1)} ixG (${fmtSigned(gap, 1)})`;
+      r.ref = cGap != null ? `c-avg ${fmtSigned(cGap, 1)}` : "l-avg 0";
+      const d = gap - base;
+      r.dir = dirOf(d, 0.5);
+      const vsTxt = cGap != null ? "own norm" : "chances";
+      if (d >= T.ixgGap) {
         r.tone = "bad";
-        r.note = "over-finishing — sell-high on G";
-      } else if (gap <= -T.ixgGap) {
+        r.note = `over-finishing vs ${vsTxt} — sell-high on G`;
+      } else if (d <= -T.ixgGap) {
         r.tone = "good";
-        r.note = "under-finishing — buy-low on G";
+        r.note = `under-finishing vs ${vsTxt} — buy-low on G`;
       } else {
         r.tone = "neutral";
-        r.note = "in line with chances";
+        r.note = cGap != null ? "finishing as usual" : "in line with chances";
       }
     } else {
       r.note = "xG unavailable";
@@ -257,38 +300,75 @@ export function skaterLuckRows({ row, adv = {}, mp, career, isDefence }) {
     rows.push(r);
   }
 
-  // 3. Primary vs secondary assists (5v5)
+  // 3. Primary vs secondary assists (5v5 + PP combined)
   {
     const r = rowShell("a1a2", "A1 vs A2", { small });
-    const a1 = num(scoring.primaryAssists5v5);
-    const a2 = num(scoring.secondaryAssists5v5);
-    if (a1 != null && a2 != null && a1 + a2 > 0) {
-      const share1 = a1 / (a1 + a2);
-      r.now = `${a1}–${a2} (${fmtPct(share1, 0)} primary)`;
-      r.ref = "5v5";
-      r.dir = share1 >= 0.6 ? "up" : share1 <= 0.45 ? "down" : "flat";
-      if (a1 + a2 >= 5 && 1 - share1 > 0.55) {
-        r.tone = "bad";
-        r.note = "secondary-heavy — A fades";
-      } else if (a1 + a2 >= 5 && share1 >= 0.65) {
-        r.tone = "good";
-        r.note = "primary-driven — A holds";
-      } else {
-        r.tone = "neutral";
-        r.note = a1 + a2 < 5 ? "few assists yet" : "balanced mix";
-      }
-    } else {
+    const sA1 = num(scoring.primaryAssists5v5);
+    const sA2 = num(scoring.secondaryAssists5v5);
+    const pA1 = num(pp.ppPrimaryAssists);
+    const pA2 = num(pp.ppSecondaryAssists);
+    const has5v5 = sA1 != null && sA2 != null;
+    const hasPP = pA1 != null && pA2 != null;
+    if (!has5v5 && !hasPP) {
       r.note = "assist split unavailable";
+    } else {
+      const a1 = (sA1 || 0) + (pA1 || 0);
+      const a2 = (sA2 || 0) + (pA2 || 0);
+      const total = a1 + a2;
+      const cTotal = (career?.a1 || 0) + (career?.a2 || 0);
+      const cShare = cTotal >= 10 ? career.a1 / cTotal : null;
+      if (total === 0) {
+        r.now = "0–0";
+        r.ref = cShare != null ? `c-avg ${fmtPct(cShare, 0)} primary` : "5v5+PP mix";
+        r.note =
+          (num(row.A) || 0) > 0
+            ? "EV+PP split only — remainder SH/other"
+            : "no assists yet";
+      } else {
+        const share1 = a1 / total;
+        r.now = `${a1}–${a2} (${fmtPct(share1, 0)} primary) · 5v5+PP`;
+        r.ref =
+          cShare != null
+            ? `c-avg ${fmtPct(cShare, 0)} primary`
+            : "5v5+PP mix";
+        const base = cShare ?? 0.5;
+        r.dir = dirOf(share1 - base, 0.05);
+        const vsTxt = cShare != null ? "own norm" : "mix";
+        const secExcess = 1 - share1 - (1 - base);
+        const absSecHeavy = 1 - share1 > 0.55;
+        const absPrimHeavy = share1 >= 0.65;
+        if (total >= 5 && secExcess > 0.1 && (cShare != null || absSecHeavy)) {
+          r.tone = "bad";
+          r.note = `secondary-heavy vs ${vsTxt} — A fades`;
+        } else if (
+          total >= 5 &&
+          share1 - base >= 0.1 &&
+          (cShare != null || absPrimHeavy)
+        ) {
+          r.tone = "good";
+          r.note = `primary-driven vs ${vsTxt} — A holds`;
+        } else {
+          r.tone = "neutral";
+          r.note = total < 5 ? "few assists yet" : "balanced mix";
+        }
+      }
     }
     rows.push(r);
   }
 
-  // 4. IPP with TOI context
+  // 4. IPP with TOI context (TOI all-situations, matching Seasons Stats)
+
+  // 4. IPP with TOI context (TOI all-situations, matching Seasons Stats)
   {
     const r = rowShell("ipp", "IPP · TOI", { small });
-    const toi =
-      num(pct.timeOnIcePerGame5v5) ?? parseTOI(row.TOI) ?? null;
-    const toiTxt = toi != null ? `${fmtTOI(toi)}/g` : "";
+    const toiAll = parseTOI(row.TOI) ?? null;
+    const toi5v5 = num(pct.timeOnIcePerGame5v5) ?? null;
+    const toiTxt =
+      toiAll != null
+        ? `${fmtTOI(toiAll)}/g${toi5v5 != null ? ` (5v5 ${fmtTOI(toi5v5)}/g)` : ""}`
+        : toi5v5 != null
+          ? `${fmtTOI(toi5v5)}/g 5v5`
+          : "";
     if (sit?.pts != null && sit?.onIceG != null && sit.onIceG >= 1) {
       const ipp = sit.pts / sit.onIceG;
       const cIpp = career?.ipp ?? null;
@@ -298,7 +378,9 @@ export function skaterLuckRows({ row, adv = {}, mp, career, isDefence }) {
       if (career?.toiAvg != null) bench.push(`c-avg TOI ${fmtTOI(career.toiAvg)}/g`);
       r.ref = bench.join(" · ");
       const toiDrop =
-        toi != null && career?.toiAvg != null ? toi - career.toiAvg : null;
+        toiAll != null && career?.toiAvg != null
+          ? toiAll - career.toiAvg
+          : null;
       if (toiDrop != null && toiDrop <= -T.toiDrop) {
         r.tone = "bad";
         r.dir = "down";
@@ -347,7 +429,7 @@ export function skaterLuckRows({ row, adv = {}, mp, career, isDefence }) {
     const v = num(scoring.onIceShootingPct5v5);
     const cAvg = career?.oish ?? null;
     const base = cAvg ?? LEAGUE.oish;
-    r.now = v != null ? `${fmtPct(v)} · ${gp} GP` : "—";
+    r.now = v != null ? `${fmtPct(v)} 5v5 · ${gp} GP` : "—";
     r.ref =
       cAvg != null
         ? `c-avg ${fmtPct(cAvg)} · l-avg ${fmtPct(LEAGUE.oish)}`
@@ -379,7 +461,7 @@ export function skaterLuckRows({ row, adv = {}, mp, career, isDefence }) {
     const pdo = v != null ? v * 1000 : null;
     const cAvg = career?.pdo ?? null;
     const base = cAvg ?? LEAGUE.pdo;
-    r.now = pdo != null ? `${pdo.toFixed(0)} · ${gp} GP` : "—";
+    r.now = pdo != null ? `${pdo.toFixed(0)} 5v5 · ${gp} GP` : "—";
     r.ref =
       cAvg != null
         ? `c-avg ${cAvg.toFixed(0)} · l-avg ${LEAGUE.pdo}`
