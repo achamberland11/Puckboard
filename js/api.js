@@ -105,6 +105,59 @@ async function fetchWithCache(url, cacheKey, ttl = CACHE_TTL) {
   return result;
 }
 
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\n") {
+      row.push(field);
+      field = "";
+      if (row.length > 1 || row[0] !== "") rows.push(row);
+      row = [];
+    } else if (c === "\r") {
+      // skip, handled by \n
+    } else {
+      field += c;
+    }
+  }
+  row.push(field);
+  if (row.length > 1 || row[0] !== "") rows.push(row);
+  return rows;
+}
+
+function findCol(headers, candidates) {
+  for (const c of candidates) {
+    const i = headers.indexOf(c);
+    if (i !== -1) return i;
+  }
+  return -1;
+}
+
+function numOrNull(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function formatTOI(seconds) {
   if (!seconds) return "0:00";
   const m = Math.floor(seconds / 60);
@@ -223,6 +276,201 @@ async function loadRosterBirthDates() {
   return birthDates;
 }
 
+////// Advanced / luck-check sources (player card only, display-only)
+
+async function loadSkaterAdvanced(season) {
+  // Official NHL stats reports: shooting luck, possession, play-driving splits.
+  // Same host/proxy as the rest of the app (/api/ -> api.nhle.com).
+  try {
+    const exp = `cayenneExp=seasonId=${season}%20and%20gameTypeId=2`;
+    const [scoring, pct, pp] = await Promise.all([
+      fetchWithCache(
+        `/api/stats/rest/en/skater/scoringRates?limit=-1&${exp}`,
+        CACHE_KEY + "_adv_scoring_" + season,
+      ),
+      fetchWithCache(
+        `/api/stats/rest/en/skater/percentages?limit=-1&${exp}`,
+        CACHE_KEY + "_adv_pct_" + season,
+      ),
+      fetchWithCache(
+        `/api/stats/rest/en/skater/powerplay?limit=-1&${exp}`,
+        CACHE_KEY + "_adv_pp_" + season,
+      ),
+    ]);
+    const byId = new Map();
+    for (const r of scoring || []) byId.set(r.playerId, { scoring: r });
+    for (const r of pct || []) {
+      if (!byId.has(r.playerId)) byId.set(r.playerId, {});
+      byId.get(r.playerId).pct = r;
+    }
+    for (const r of pp || []) {
+      if (!byId.has(r.playerId)) byId.set(r.playerId, {});
+      byId.get(r.playerId).pp = r;
+    }
+    return byId;
+  } catch (err) {
+    console.error("Failed to load skater advanced stats:", err);
+    return new Map();
+  }
+}
+
+function trimMoneyPuckSkater(headers, cells) {
+  const pick = (cands) => {
+    const i = findCol(headers, cands);
+    return i === -1 ? null : numOrNull(cells[i]);
+  };
+  const idIdx = findCol(headers, ["playerid", "player_id", "id"]);
+  const sitIdx = findCol(headers, ["situation"]);
+  return {
+    id: idIdx === -1 ? null : numOrNull(cells[idIdx]),
+    situation: sitIdx === -1 ? "" : String(cells[sitIdx] || "").toLowerCase(),
+    gp: pick(["games_played", "gamesplayed", "games"]),
+    toi: pick(["icetime", "timeonice", "toi"]),
+    g: pick(["i_f_goals"]),
+    xg: pick(["i_f_xgoals", "i_f_scorevenueadjustedxgoals"]),
+    pts: pick(["i_f_points"]),
+    a1: pick(["i_f_primaryassists"]),
+    a2: pick(["i_f_secondaryassists"]),
+    sog: pick(["i_f_shotsonGoal".toLowerCase(), "i_f_shotsongoal"]),
+    onIceG: pick(["onice_f_goals"]),
+    xgPct: pick(["onice_xgoalspercentage", "onice_xgoals_percent", "onice_xg_pct"]),
+    hds: pick(["i_f_highdangershots"]),
+    hdxg: pick(["i_f_highdangerxgoals"]),
+  };
+}
+
+function trimMoneyPuckGoalie(headers, cells) {
+  const pick = (cands) => {
+    const i = findCol(headers, cands);
+    return i === -1 ? null : numOrNull(cells[i]);
+  };
+  const idIdx = findCol(headers, ["playerid", "player_id", "id"]);
+  const sitIdx = findCol(headers, ["situation"]);
+  return {
+    id: idIdx === -1 ? null : numOrNull(cells[idIdx]),
+    situation: sitIdx === -1 ? "" : String(cells[sitIdx] || "").toLowerCase(),
+    gp: pick(["games_played", "gamesplayed", "games"]),
+    toi: pick(["icetime", "timeonice", "toi"]),
+    goals: pick(["goals", "goalsagainst", "goals_against"]),
+    xGoals: pick(["xgoals", "expectedgoals", "xg", "expected_goals", "xgoal"]),
+    shots: pick(["shots", "shotsagainst", "shots_against", "shotsonGoal".toLowerCase(), "shotsongoal"]),
+    savePct: pick(["savepct", "savepercentage", "svpct", "save_pct", "savepct5v5"]),
+  };
+}
+
+function indexMoneyPuckBySit(records) {
+  // records: [{id, situation: '5on5'|'all'|..., ...}]
+  const byId = {};
+  for (const r of records) {
+    if (r.id == null) continue;
+    if (!byId[r.id]) byId[r.id] = {};
+    const sit = r.situation || "";
+    if (sit === "5on5") byId[r.id].ev = r;
+    else if (sit === "all") byId[r.id].all = r;
+  }
+  // Fallback: if a situation is missing, reuse the other one.
+  for (const id of Object.keys(byId)) {
+    const e = byId[id];
+    if (!e.ev && e.all) e.ev = e.all;
+    if (!e.all && e.ev) e.all = e.ev;
+  }
+  return byId;
+}
+
+async function fetchMoneyPuckCSV(season, kind) {
+  // MoneyPuck season key is the starting year: 20262027 -> 2026.
+  const year = String(season).slice(0, 4);
+  const paths = [
+    `playerData/seasonSummary/${year}/regular/${kind}.csv`,
+    `playerData/seasonSummary/${year}_${kind}.csv`,
+  ];
+  let lastErr = null;
+  for (const p of paths) {
+    const ctrl = new AbortController();
+    // Multi-MB files through the dev proxy: generous timeout, but a hung
+    // connection must never block the section forever.
+    const timer = setTimeout(() => ctrl.abort(), 120000);
+    try {
+      const response = await fetch(`/moneypuck/${p}`, {
+        signal: ctrl.signal,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.text();
+    } catch (err) {
+      lastErr = err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastErr || new Error("MoneyPuck fetch failed");
+}
+
+async function loadMoneyPuckIndexed(season, kind, trim) {
+  // Cache the trimmed per-player index (small) rather than the raw CSV text,
+  // so repeat card opens skip both the download and the parse.
+  const key = CACHE_KEY + "_mpidx_" + kind + "_" + season;
+  try {
+    const cached = await storageGet(key);
+    if (
+      cached &&
+      typeof cached === "object" &&
+      cached.data != null &&
+      Date.now() - cached.timestamp < (cached.ttl || CACHE_TTL)
+    ) {
+      return cached.data;
+    }
+  } catch (err) {
+    console.error("Cache read failed:", key, err);
+  }
+  const text = await fetchMoneyPuckCSV(season, kind);
+  const rows = parseCSV(text);
+  if (rows.length < 2) return {};
+  const headers = rows[0].map((h) => String(h).trim().toLowerCase());
+  const records = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = trim(headers, rows[i]);
+    if (r.id != null) records.push(r);
+  }
+  const indexed = indexMoneyPuckBySit(records);
+  try {
+    await storageSet(key, { data: indexed, timestamp: Date.now(), ttl: CACHE_TTL });
+  } catch (err) {
+    console.error("Cache write failed:", key, err);
+  }
+  return indexed;
+}
+
+async function loadMoneyPuckSkaters(season) {
+  try {
+    return await loadMoneyPuckIndexed(season, "skaters", trimMoneyPuckSkater);
+  } catch (err) {
+    console.error("Failed to load MoneyPuck skaters:", err);
+    return {};
+  }
+}
+
+async function loadMoneyPuckGoalies(season) {
+  try {
+    return await loadMoneyPuckIndexed(season, "goalies", trimMoneyPuckGoalie);
+  } catch (err) {
+    console.error("Failed to load MoneyPuck goalies:", err);
+    return {};
+  }
+}
+
+async function loadEdgeGoalieDetail(playerId, season) {
+  try {
+    const url = `/api-web/v1/edge/goalie-detail/${playerId}/${season}/2`;
+    return await fetchWithCache(
+      url,
+      CACHE_KEY + "_edge_goalie_" + season + "_" + playerId,
+    );
+  } catch (err) {
+    console.error("Failed to load Edge goalie detail:", err);
+    return null;
+  }
+}
+
 export {
   CACHE_KEY,
   fetchWithCache,
@@ -232,6 +480,10 @@ export {
   loadPlayerLanding,
   loadRosterBirthDates,
   loadSkaterRealtime,
+  loadSkaterAdvanced,
+  loadMoneyPuckSkaters,
+  loadMoneyPuckGoalies,
+  loadEdgeGoalieDetail,
   removeCacheKeys,
   TEAM_SLUGS,
 };

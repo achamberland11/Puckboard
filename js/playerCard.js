@@ -1,5 +1,20 @@
 import { seasons, seasonDataPlayer, seasonDataGoaler } from "./app.js";
-import { loadGameLog, loadPlayerLanding } from "./api.js";
+import {
+  loadGameLog,
+  loadPlayerLanding,
+  loadSkaterAdvanced,
+  loadMoneyPuckSkaters,
+  loadMoneyPuckGoalies,
+  loadEdgeGoalieDetail,
+} from "./api.js";
+import {
+  skaterLuckRows,
+  goalieLuckRows,
+  careerSkaterShot,
+  careerSkaterRates,
+  careerGoalieSave,
+  arrowChar,
+} from "./sustainability.js";
 import { FIELD_INFO, SECTION_INFO } from "./fields.js";
 
 function formatSeason(yyyyyyyy) {
@@ -553,8 +568,200 @@ function buildGraphSection(playerID, seasons, seasonData, goalie) {
   return section;
 }
 
-function buildAwardsSection(awards) {
-  if (!awards || awards.length === 0) return null;
+function findCardSeason(playerID, goalie) {
+  // Most recent season available on the site where the player has a row.
+  const data = goalie ? seasonDataGoaler : seasonDataPlayer;
+  for (const s of seasons) {
+    if (data[s]?.some((p) => p.ID === playerID)) return s;
+  }
+  return null;
+}
+
+function signalCell(row) {
+  const td = document.createElement("td");
+  const dot = document.createElement("span");
+  dot.className = `luck-dot luck-${row.tone}${row.small ? " hollow" : ""}`;
+  dot.title = row.small ? "Small sample (<10 GP) — expect swing" : "";
+  td.appendChild(dot);
+  const arrow = document.createElement("span");
+  arrow.textContent = arrowChar(row.dir);
+  arrow.className = `luck-arrow luck-${row.tone}`;
+  td.appendChild(arrow);
+  if (row.small) {
+    const ss = document.createElement("span");
+    ss.className = "luck-ss";
+    ss.textContent = "SS";
+    ss.title = "Small sample (<10 GP) — expect swing";
+    td.appendChild(ss);
+  }
+  if (row.note) {
+    const note = document.createElement("span");
+    note.className = "luck-note";
+    note.textContent = row.note;
+    td.appendChild(note);
+  }
+  return td;
+}
+
+function renderLuckRows(tbody, rows) {
+  tbody.textContent = "";
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    const label = document.createElement("td");
+    label.textContent = row.label;
+    const info = FIELD_INFO[row.label];
+    if (info) label.title = info;
+    const now = document.createElement("td");
+    now.textContent = row.now;
+    const ref = document.createElement("td");
+    ref.textContent = row.ref;
+    tr.appendChild(label);
+    tr.appendChild(now);
+    tr.appendChild(ref);
+    tr.appendChild(signalCell(row));
+    tbody.appendChild(tr);
+  }
+}
+
+async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie) {
+  const season = findCardSeason(playerID, goalie);
+  if (!season || !tablePlayer) {
+    tbody.textContent = "";
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 4;
+    td.textContent = "No season data.";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+  try {
+    if (goalie) {
+      const [mpMap, edge] = await Promise.all([
+        loadMoneyPuckGoalies(season),
+        loadEdgeGoalieDetail(playerID, season),
+      ]);
+      const career = careerGoalieSave(seasonDataGoaler, seasons, playerID);
+      renderLuckRows(
+        tbody,
+        goalieLuckRows({
+          row: tablePlayer,
+          mp: mpMap[playerID],
+          edge,
+          career,
+        }),
+      );
+    } else {
+      // Phase 1: current season only — renders immediately.
+      const [advMap, mpMap] = await Promise.all([
+        loadSkaterAdvanced(season),
+        loadMoneyPuckSkaters(season),
+      ]);
+      const isDefence =
+        Array.isArray(tablePlayer.Position) &&
+        tablePlayer.Position.includes("D");
+      const career = careerSkaterShot(
+        seasonDataPlayer,
+        seasons,
+        playerID,
+        isDefence,
+      );
+      const render = (extra = {}) => {
+        Object.assign(career, extra);
+        renderLuckRows(
+          tbody,
+          skaterLuckRows({
+            row: tablePlayer,
+            adv: advMap.get(playerID) || {},
+            mp: mpMap[playerID],
+            career,
+            isDefence,
+          }),
+        );
+      };
+      render();
+      // Phase 2: history for seasons the player actually played — upgrades
+      // the c-avg benchmarks on IPP/OISH%/PDO. Never blocks the section:
+      // failures keep the phase-1 rows.
+      const played = seasons.filter(
+        (s) =>
+          s !== season &&
+          seasonDataPlayer[s]?.some((p) => p.ID === playerID),
+      );
+      if (played.length > 0) {
+        try {
+          const [advH, mpH] = await Promise.all([
+            Promise.all(played.map((s) => loadSkaterAdvanced(s))),
+            Promise.all(played.map((s) => loadMoneyPuckSkaters(s))),
+          ]);
+          render(
+            careerSkaterRates(
+              [advMap, ...advH],
+              [mpMap, ...mpH],
+              [season, ...played],
+              playerID,
+            ),
+          );
+        } catch (err) {
+          console.error("Failed to load career rates:", err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load advanced stats:", err);
+    tbody.textContent = "";
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 4;
+    td.textContent = "Failed to load advanced stats.";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+}
+
+function buildAdvancedSection(playerID, tablePlayer, goalie) {
+  const section = document.createElement("div");
+  section.className = "player-card-section";
+
+  const title = document.createElement("div");
+  title.className = "player-card-section-title";
+  title.textContent = "Advanced — Luck Check";
+  title.title = SECTION_INFO.advanced;
+  section.appendChild(title);
+
+  const legend = document.createElement("div");
+  legend.className = "luck-legend";
+  legend.textContent =
+    "● outlook: green holds or bounces back · red fades · ▲▼ vs benchmark · SS = under 10 GP";
+  section.appendChild(legend);
+
+  const table = document.createElement("table");
+  table.className = "player-card-stats-table";
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  for (const h of ["Metric", "Current", "Benchmark", "Signal"]) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    headerRow.appendChild(th);
+  }
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  const loadingRow = document.createElement("tr");
+  const loadingCell = document.createElement("td");
+  loadingCell.colSpan = 4;
+  loadingCell.textContent = "Loading…";
+  loadingRow.appendChild(loadingCell);
+  tbody.appendChild(loadingRow);
+  table.appendChild(tbody);
+  section.appendChild(table);
+
+  fillAdvancedSection(tbody, playerID, tablePlayer, goalie);
+  return section;
+}
+
+function buildAwardsSection(awards) {  if (!awards || awards.length === 0) return null;
   const section = document.createElement("div");
   section.className = "player-card-section";
 
@@ -628,6 +835,9 @@ export async function populatePlayerCard(card, player, onClose) {
   const last5Section = buildLast5Section(data.last5Games, goalie);
   if (last5Section) statsContainer.appendChild(last5Section);
 
+  const awardsSection = buildAwardsSection(data.awards);
+  if (awardsSection) statsContainer.appendChild(awardsSection);
+
   const graphContainer = document.createElement("div");
   graphContainer.textContent = "";
   graphContainer.className = "player-section-container graph-container";
@@ -641,8 +851,8 @@ export async function populatePlayerCard(card, player, onClose) {
   );
   if (graphSection) graphContainer.appendChild(graphSection);
 
-  const awardsSection = buildAwardsSection(data.awards);
-  if (awardsSection) card.appendChild(awardsSection);
+  const advancedSection = buildAdvancedSection(data.playerId, player, goalie);
+  if (advancedSection) graphContainer.appendChild(advancedSection);
 
   const slug =
     `${data.firstName.default} ${data.lastName.default}`

@@ -60,6 +60,16 @@ export const FIELD_INFO = {
   "W/L": "Goalie decision: Win, Loss or Overtime loss.",
   Season: "Season (start year - end year).",
   Date: "Game date.",
+  "SH%": "Shooting percentage vs career average across the seasons on this site. Hot = goals fade; cold with chances intact = buy-low.",
+  "G vs ixG": "Goals vs individual expected goals (MoneyPuck, 5v5). Over-finishing = sell-high on G; under-finishing = buy-low.",
+  "A1 vs A2": "Primary vs secondary assists (5v5). Secondary-heavy production fades; primary-driven assists hold.",
+  "IPP · TOI": "Individual points percentage (share of on-ice goals the player factored in) with 5v5 ice time, vs career (c-avg) and league (l-avg) benchmarks. High IPP = involvement spike; low IPP with steady TOI = points coming. TOI drops signal role loss.",
+  "OISH%": "On-ice shooting percentage (5v5) vs career (c-avg) and league (l-avg): linemate finishing while the player is on the ice. Drives P and +/- without the player doing anything.",
+  PDO: "Shooting luck + goaltending luck combined (OISH% + on-ice SV%) vs career (c-avg) and league (l-avg 1000). High = +/- fades; low with role intact = bounce-back.",
+  "PP TOI · PPP/60": "Power-play role (time per game) vs power-play scoring rate. PPP without a role fades; role without production is a buy-low.",
+  "5v5 SV%": "Even-strength save percentage vs career. Hot without strong expected-goals prevention = sell-high; cold with good prevention = buy-low. Wins follow the team, not the goalie.",
+  "HD SV%": "High-danger save percentage (NHL Edge). Hot stretches fade; dips bounce back.",
+  GSAx: "Goals saved above expected (MoneyPuck). Sustained positive = skill: GAA and SV% hold.",
 };
 
 export const SECTION_INFO = {
@@ -72,4 +82,6 @@ export const SECTION_INFO = {
   comparison: "Side-by-side comparison of the selected players.",
   stats: "Season stats for the selected players. The best value in each row is bolded.",
   radar: "Per-category z-scores for the selected players. Use the dropdown to choose the reference pool (compared players, same position group or all players).",
+  advanced:
+    "Luck check: is the production sustainable? Dot = outlook (green holds or bounces back, red fades, gray neutral). Arrow = direction vs benchmark (up above, down below, flat in line). SS = small sample under 10 GP: value shown, verdict faded. Display-only, never affects Z-scores, value indexes or tiers.",
 };

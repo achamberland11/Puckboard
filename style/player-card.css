@@ -220,3 +220,70 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Luck-check signals: dots reuse the table value palette
+   (high = green, low = red), hollow + SS tag when GP < 10. */
+.luck-dot {
+  display: inline-block;
+  width: 0.65em;
+  height: 0.65em;
+  border-radius: 50%;
+  margin-right: 0.35em;
+  vertical-align: baseline;
+}
+
+.luck-good {
+  color: var(--color-value-high);
+}
+
+.luck-bad {
+  color: var(--color-value-low);
+}
+
+.luck-neutral {
+  color: var(--color-text-muted);
+}
+
+.luck-dot.luck-good {
+  background: var(--color-value-high);
+}
+
+.luck-dot.luck-bad {
+  background: var(--color-value-low);
+}
+
+.luck-dot.luck-neutral {
+  background: var(--color-text-muted);
+}
+
+.luck-dot.hollow {
+  background: transparent;
+  border: 2px solid currentColor;
+  width: 0.55em;
+  height: 0.55em;
+}
+
+.luck-arrow {
+  font-size: 0.85em;
+}
+
+.luck-note {
+  color: var(--color-text-muted);
+  font-size: 0.8em;
+  margin-left: 0.4em;
+}
+
+.luck-legend {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  margin: -0.25rem 0 0.5rem;
+}
+
+.luck-ss {
+  font-size: 0.7em;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  padding: 0 0.3em;
+  margin-left: 0.4em;
+}

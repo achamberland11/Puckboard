@@ -1,5 +1,5 @@
 import urllib.request
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 TEAMS = [
     "ANA",
@@ -53,6 +53,21 @@ class ProxyHandler(SimpleHTTPRequestHandler):
                 self.send_response(502)
                 self.end_headers()
                 self.wfile.write(str(e).encode())
+        elif self.path.startswith("/moneypuck/"):
+            target = "https://moneypuck.com/moneypuck/" + self.path[len("/moneypuck/"):]
+            try:
+                req = urllib.request.Request(target, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req) as resp:
+                    data = resp.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/csv")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(data)
+            except Exception as e:
+                self.send_response(502)
+                self.end_headers()
+                self.wfile.write(str(e).encode())
         elif self.path.startswith("/api/"):
             target = "https://api.nhle.com" + self.path[4:]
             try:
@@ -71,6 +86,10 @@ class ProxyHandler(SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 if __name__ == "__main__":
-    server = HTTPServer(("localhost", 8000), ProxyHandler)
+    # Threaded: the app fans out parallel proxy fetches (multi-season
+    # advanced stats + multi-MB MoneyPuck CSVs); a single-threaded server
+    # serializes them all and cards take forever to load.
+    server = ThreadingHTTPServer(("localhost", 8000), ProxyHandler)
+    server.daemon_threads = True
     print("Running at http://localhost:8000")
     server.serve_forever()
