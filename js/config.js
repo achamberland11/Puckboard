@@ -18,7 +18,7 @@ export const LEAGUE_CONFIG = {
     HITS: 1,
     SA: 1,
   },
-  minGP: 20,
+  minGP: 10,
   goalieMinGP: 10,
   paceGames: 82,
   gameLimits: {
