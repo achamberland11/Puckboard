@@ -15,6 +15,7 @@ import {
   careerSkaterRates,
   careerGoalieSave,
   seasonAdvCells,
+  seasonGoalieCells,
   arrowChar,
 } from "./sustainability.js";
 import { FIELD_INFO, SECTION_INFO } from "./fields.js";
@@ -212,7 +213,7 @@ function buildSeasonsStatsSection(playerID, seasons, seasonData, goalie) {
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
   const headers = goalie
-    ? ["Season", "Team", "GP", "W", "SV%", "GAA", "GVI", "Tier"]
+    ? ["Season", "Team", "GP", "W", "SV%", "GAA", "GSAx", "GSAx/60", "GVI", "Tier"]
     : ["Season", "Team", "GP", "G", "A", "P", "PPP", "+/-", "SH%", "ixG", "xGF%", "RXGF%", "TOI", "GVI", "Tier"];
   headers.forEach((h) => {
     const th = document.createElement("th");
@@ -242,6 +243,8 @@ function buildSeasonsStatsSection(playerID, seasons, seasonData, goalie) {
         player.W,
         player["SV%"],
         player.GAA,
+        "…",
+        "…",
         player.GVI,
         player.Tier,
       ];
@@ -272,7 +275,9 @@ function buildSeasonsStatsSection(playerID, seasons, seasonData, goalie) {
       tr.appendChild(td);
       return td;
     });
-    if (!goalie) advCells.set(season, tds.slice(9, 12));
+    // Skater advanced cols sit after SH% (idx 9-11); goalie ones after GAA.
+    if (goalie) advCells.set(season, { tds: tds.slice(6, 8), goalie: true });
+    else advCells.set(season, { tds: tds.slice(9, 12), goalie: false });
     tbody.appendChild(tr);
   };
   table.appendChild(tbody);
@@ -283,16 +288,21 @@ function buildSeasonsStatsSection(playerID, seasons, seasonData, goalie) {
 function fillSeasonsAdvCells(advCells, mpBySeason) {
   // mpBySeason: Map-like season -> MoneyPuck index entry (or plain object).
   if (!advCells) return;
-  for (const [season, tds] of advCells) {
+  for (const [season, ref] of advCells) {
     const entry =
       typeof mpBySeason?.get === "function"
         ? mpBySeason.get(season)
         : mpBySeason?.[season];
-    const vals = entry ? seasonAdvCells(entry) : null;
-    const [ixg, xgf, rel] = [vals?.ixg ?? "—", vals?.xgf ?? "—", vals?.rel ?? "—"];
-    tds[0].textContent = ixg;
-    tds[1].textContent = xgf;
-    tds[2].textContent = rel;
+    if (ref.goalie) {
+      const vals = entry ? seasonGoalieCells(entry) : null;
+      ref.tds[0].textContent = vals?.gsax ?? "—";
+      ref.tds[1].textContent = vals?.gsax60 ?? "—";
+    } else {
+      const vals = entry ? seasonAdvCells(entry) : null;
+      ref.tds[0].textContent = vals?.ixg ?? "—";
+      ref.tds[1].textContent = vals?.xgf ?? "—";
+      ref.tds[2].textContent = vals?.rel ?? "—";
+    }
   }
 }
 
@@ -313,7 +323,7 @@ function buildLast5Section(last5, goalie) {
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
   const headers = goalie
-    ? ["Date", "Opp", "W/L", "SV%", "GAA", "TOI"]
+    ? ["Date", "Opp", "W/L", "SV%", "GAA", "GSAx", "TOI"]
     : ["Date", "Opp", "G", "A", "P", "PPG", "+/-", "ixG", "TOI"];
   headers.forEach((h) => {
     const th = document.createElement("th");
@@ -338,6 +348,7 @@ function buildLast5Section(last5, goalie) {
         game.decision,
         game.savePctg != null ? (game.savePctg * 100).toFixed(1) + "%" : "-",
         game.goalsAgainstAvg?.toFixed(2) || "-",
+        "…",
         game.toi || "-",
       ];
     } else {
@@ -360,7 +371,8 @@ function buildLast5Section(last5, goalie) {
       tr.appendChild(td);
       return td;
     });
-    if (!goalie) ixgCells.push({ date: game.gameDate, td: tds[7] });
+    if (goalie) ixgCells.push({ date: game.gameDate, td: tds[5], mode: "gsax" });
+    else ixgCells.push({ date: game.gameDate, td: tds[7], mode: "ixg" });
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
@@ -370,11 +382,19 @@ function buildLast5Section(last5, goalie) {
 
 function fillLast5IxG(ixgCells, mpGameLog) {
   // NHL dates are YYYY-MM-DD; MoneyPuck keys are YYYYMMDD.
+  // Skaters show per-game ixG; goalies show per-game GSAx (xG - goals).
   if (!ixgCells) return;
-  for (const { date, td } of ixgCells) {
+  for (const { date, td, mode } of ixgCells) {
     const key = String(date || "").replaceAll("-", "");
     const rec = mpGameLog?.byDate?.[key]?.all || null;
-    td.textContent = rec?.xg != null ? rec.xg.toFixed(1) : "—";
+    if (mode === "gsax") {
+      const v =
+        rec?.xg != null && rec?.g != null ? rec.xg - rec.g : null;
+      td.textContent =
+        v != null ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}` : "—";
+    } else {
+      td.textContent = rec?.xg != null ? rec.xg.toFixed(1) : "—";
+    }
   }
 }
 
@@ -686,6 +706,10 @@ async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks =
         loadEdgeGoalieDetail(playerID, season),
       ]);
       const career = careerGoalieSave(seasonDataGoaler, seasons, playerID);
+      hooks.seasonsFill?.({ [season]: mpMap[playerID] });
+      loadMoneyPuckGameLog(playerID, season).then((g) =>
+        hooks.last5Fill?.(g),
+      );
       renderLuckRows(
         tbody,
         goalieLuckRows({
@@ -695,6 +719,26 @@ async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks =
           career,
         }),
       );
+      // History for played seasons fills the remaining Seasons rows.
+      const played = seasons.filter(
+        (s) =>
+          s !== season &&
+          seasonDataGoaler[s]?.some((p) => p.ID === playerID),
+      );
+      if (played.length > 0) {
+        try {
+          const mpH = await Promise.all(
+            played.map((s) => loadMoneyPuckGoalies(s)),
+          );
+          const combined = { [season]: mpMap[playerID] };
+          played.forEach((s, i) => {
+            combined[s] = mpH[i][playerID];
+          });
+          hooks.seasonsFill?.(combined);
+        } catch (err) {
+          console.error("Failed to load goalie history:", err);
+        }
+      }
     } else {
       // Phase 1: current season only — renders immediately.
       const [advMap, mpMap] = await Promise.all([

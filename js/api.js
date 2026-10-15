@@ -347,15 +347,35 @@ function trimMoneyPuckGoalie(headers, cells) {
   };
   const idIdx = findCol(headers, ["playerid", "player_id", "id"]);
   const sitIdx = findCol(headers, ["situation"]);
+  const goals = pick(["goals", "goalsagainst", "goals_against"]);
+  const shots = pick([
+    "shots",
+    "shotsagainst",
+    "shots_against",
+    "shotsonGoal".toLowerCase(),
+    "shotsongoal",
+    "ongoal",
+    "xongoal",
+  ]);
+  let savePct = pick([
+    "savepct",
+    "savepercentage",
+    "svpct",
+    "save_pct",
+    "savepct5v5",
+  ]);
+  if (savePct == null && shots != null && goals != null && shots > 0) {
+    savePct = (shots - goals) / shots;
+  }
   return {
     id: idIdx === -1 ? null : numOrNull(cells[idIdx]),
     situation: sitIdx === -1 ? "" : String(cells[sitIdx] || "").toLowerCase(),
     gp: pick(["games_played", "gamesplayed", "games"]),
     toi: pick(["icetime", "timeonice", "toi"]),
-    goals: pick(["goals", "goalsagainst", "goals_against"]),
+    goals,
     xGoals: pick(["xgoals", "expectedgoals", "xg", "expected_goals", "xgoal"]),
-    shots: pick(["shots", "shotsagainst", "shots_against", "shotsonGoal".toLowerCase(), "shotsongoal"]),
-    savePct: pick(["savepct", "savepercentage", "svpct", "save_pct", "savepct5v5"]),
+    shots,
+    savePct,
   };
 }
 
@@ -471,8 +491,9 @@ function trimMoneyPuckGame(headers, cells) {
   return {
     date: get(["gamedate", "game_date", "date"]),
     situation: get(["situation"]).toLowerCase(),
-    xg: pick(["i_f_xgoals", "i_f_scorevenueadjustedxgoals"]),
-    g: pick(["i_f_goals"]),
+    // Skater files use I_F_* columns, goalie files use bare xGoals/goals.
+    xg: pick(["i_f_xgoals", "i_f_scorevenueadjustedxgoals", "xgoals"]),
+    g: pick(["i_f_goals", "goals"]),
   };
 }
 

@@ -213,6 +213,20 @@ export function seasonAdvCells(mpEntry) {
   };
 }
 
+// Goalie season-table cells from a per-season MoneyPuck index entry.
+// All-situations (matches the W/GAA columns): GSAx and GSAx per 60.
+export function seasonGoalieCells(mpEntry) {
+  const all = mpEntry?.all || mpEntry?.ev || null;
+  const gsax =
+    all?.xGoals != null && all?.goals != null ? all.xGoals - all.goals : null;
+  const toiH = all?.toi != null && all.toi > 0 ? all.toi / 3600 : null;
+  const per60 = gsax != null && toiH != null ? gsax / toiH : null;
+  return {
+    gsax: gsax != null ? fmtSigned(gsax, 1) : "—",
+    gsax60: per60 != null ? fmtSigned(per60, 2) : "—",
+  };
+}
+
 export function skaterLuckRows({ row, adv = {}, mp, career, isDefence }) {
   const gp = num(row.GP) || 0;
   const small = smallSample(gp);

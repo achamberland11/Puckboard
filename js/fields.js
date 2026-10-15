@@ -65,6 +65,8 @@ export const FIELD_INFO = {
   ixG: "Individual expected goals, all situations (MoneyPuck). Compare with G: finishing above chances fades, below means goals are coming.",
   "xGF%": "Share of expected goals for the player's team while he is on the ice at 5v5 (MoneyPuck). Above 50% = out-chancing opponents.",
   "RXGF%": "Relative expected-goals share: on-ice share minus off-ice share (5v5, MoneyPuck): how much the player drives play vs his own team baseline.",
+  GSAx: "Goals saved above expected, all situations (MoneyPuck xG minus goals against). Sustained positive = skill.",
+  "GSAx/60": "Goals saved above expected per 60 minutes (MoneyPuck). Rate version of GSAx, comparable across workloads.",
   "G vs ixG": "Goals vs individual expected goals (MoneyPuck, 5v5) vs the player's own norm (c-avg). Over-finishing = sell-high on G; under-finishing = buy-low.",
   "A1 vs A2": "Primary vs secondary assists (5v5 + power play combined) vs career mix (c-avg). Secondary-heavy production fades; primary-driven assists hold.",
   "IPP · TOI": "Individual points percentage (5v5 share of on-ice goals the player factored in) with all-situations ice time per game, vs career (c-avg) and league (l-avg) benchmarks. High IPP = involvement spike; low IPP with steady TOI = points coming. TOI drops signal role loss.",
