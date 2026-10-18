@@ -1,3 +1,4 @@
+import os
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
@@ -85,11 +86,13 @@ class ProxyHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(str(e).encode())
         else:
             super().do_GET()
+
 if __name__ == "__main__":
     # Threaded: the app fans out parallel proxy fetches (multi-season
     # advanced stats + multi-MB MoneyPuck CSVs); a single-threaded server
     # serializes them all and cards take forever to load.
-    server = ThreadingHTTPServer(("localhost", 8000), ProxyHandler)
+    port = int(os.environ.get("PORT", 8000))
+    server = ThreadingHTTPServer(("0.0.0.0", port), ProxyHandler)
     server.daemon_threads = True
-    print("Running at http://localhost:8000")
+    print(f"Running at http://0.0.0.0:{port}")
     server.serve_forever()
