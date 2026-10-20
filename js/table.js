@@ -3,6 +3,7 @@ import { TEAM_SLUGS } from "./api.js";
 import { FIELD_INFO } from "./fields.js";
 import { LEAGUE_CONFIG } from "./config.js";
 import { TIER_RANK } from "./stats.js";
+import { tierBadgeEl } from "./tierBadge.js";
 
 const RANK_COLS = new Set([
   "rankG",
@@ -57,18 +58,6 @@ const HEADER_LABELS = {
   "RotoVal-Pace": "Z82",
   PM82: "+/-82",
   Tier: "Tier",
-};
-
-const TIER_BADGE_CLASS = {
-  "S++": "tier-splusplus",
-  "S+": "tier-splus",
-  S: "tier-s",
-  A: "tier-a",
-  B: "tier-b",
-  C: "tier-c",
-  D: "tier-d",
-  E: "tier-e",
-  F: "tier-f",
 };
 
 function tierSortVal(v) {
@@ -487,15 +476,9 @@ function buildTable(data, options = {}) {
       columns.forEach((col) => {
         const td = document.createElement("td");
         if (col === "Tier") {
-          const v = item[col];
-          if (v != null && v !== "") {
-            const badge = document.createElement("span");
-            badge.className = `tier-badge ${TIER_BADGE_CLASS[v] || ""}`;
-            badge.textContent = v;
-            td.appendChild(badge);
-          } else {
-            td.textContent = "";
-          }
+          const badge = tierBadgeEl(item[col]);
+          if (badge) td.appendChild(badge);
+          else td.textContent = "";
         } else if (col === "Team") {
           const slug = TEAM_SLUGS[item.Team];
           if (slug) {

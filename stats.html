@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Player Stats — Le Puckboard</title>
+  <link rel="stylesheet" href="style/variables.css">
+  <link rel="stylesheet" href="style/nav.css">
+  <link rel="stylesheet" href="style/base.css">
+  <link rel="stylesheet" href="style/table.css">
+  <link rel="stylesheet" href="style/tier-badge.css">
+  <link rel="stylesheet" href="style/player-card.css">
+  <link rel="stylesheet" href="style/compare.css">
+</head>
+
+<body>
+  <h1>Player Stats</h1>
+
+  <div class="filters-bar">
+    <select id="positionFilter" class="selector" title="Filter players by position.">
+      <option value="All">All positions</option>
+      <option value="F">Forward</option>
+      <option value="C">Center (C)</option>
+      <option value="LW">Left Wing (LW)</option>
+      <option value="RW">Right Wing (RW)</option>
+      <option value="D">Defence (D)</option>
+      <option value="G">Goaler (G)</option>
+      <option value="Removed">Removed Players</option>
+    </select>
+
+    <select id="seasonFilter" class="selector" title="Choose the season to display.">
+      <option value="20262027">2026-27</option>
+      <option value="20252026">2025-26</option>
+      <option value="20242025">2024-25</option>
+      <option value="20232024">2023-24</option>
+      <option value="20222023">2022-23</option>
+      <option value="20212022">2021-22</option>
+    </select>
+
+    <div class="search-wrap">
+      <input id="searchInput" type="text" class="selector" placeholder="Search player or team..." title="Search by player name or team abbreviation." />
+      <button id="clearSearchBtn" type="button" class="search-clear" title="Clear search" aria-label="Clear search" hidden>×</button>
+    </div>
+
+    <label class="toggle-label">
+      <input type="checkbox" id="ranksToggle" title="Show each category's league rank under its value." />
+      <span>Category ranks</span>
+    </label>
+
+    <button id="resetHideBtn" class="button" title="Unhide all players that were hidden with the hide button.">Reset hides</button>
+
+    <button id="resetHighlightBtn" class="button" title="Remove the highlight from all highlighted players.">Reset favorites</button>
+
+    <button id="resetCompareBtn" class="button" title="Remove all players from the comparison selection.">Reset compare</button>
+
+    <button id="compareBtn" class="button" disabled title="Open the comparison view for the selected players (at least 2 required).">Compare (0)</button>
+
+    <button id="refreshBtn" class="button" title="Clear the cached stats and reload from the NHL API.">🔄 Refresh</button>
+  </div>
+
+  <div id="playersContainer"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="js/nav.js" type="module"></script>
+  <script src="js/app.js" type="module"></script>
+</body>
+
+</html>

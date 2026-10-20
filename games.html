@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Games — Le Puckboard</title>
+  <link rel="stylesheet" href="style/variables.css">
+  <link rel="stylesheet" href="style/nav.css">
+  <link rel="stylesheet" href="style/base.css">
+  <link rel="stylesheet" href="style/games.css">
+</head>
+
+<body>
+  <main>
+    <h1>Games</h1>
+
+    <div class="game-date-nav card">
+      <button id="prevDay" class="button" title="Previous day">←</button>
+      <button id="todayBtn" class="button" title="Jump to today">Today</button>
+      <span id="dateLabel" class="game-date-label"></span>
+      <button id="nextDay" class="button" title="Next day">→</button>
+    </div>
+
+    <div id="gamesGrid" class="games-grid"></div>
+  </main>
+
+  <script src="js/nav.js" type="module"></script>
+  <script src="js/games.js" type="module"></script>
+</body>
+
+</html>

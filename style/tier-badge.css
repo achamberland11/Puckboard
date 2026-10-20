@@ -1,0 +1,61 @@
+.tier-badge {
+  display: inline-block;
+  min-width: 2rem;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: bold;
+  text-align: center;
+}
+
+.tier-badge-inline {
+  min-width: 0;
+  margin-left: 0.35rem;
+  padding: 1px 6px;
+  font-size: 0.68rem;
+  vertical-align: middle;
+}
+
+.tier-splusplus {
+  color: #ffffff;
+  background: linear-gradient(135deg, #a855f7, #ec4899);
+}
+
+.tier-splus {
+  color: #030303;
+  background: #ffd700;
+}
+
+.tier-s {
+  color: #030303;
+  background: #7ae6ff;
+}
+
+.tier-a {
+  color: #030303;
+  background: #9cff9c;
+}
+
+.tier-b {
+  color: #030303;
+  background: #ffff64;
+}
+
+.tier-c {
+  color: #030303;
+  background: #ffcc99;
+}
+
+.tier-d {
+  color: #030303;
+  background: #ff9c9c;
+}
+
+.tier-e {
+  color: #030303;
+  background: #c39bd3;
+}
+
+.tier-f {
+  color: #f0f0f0;
+  background: #4d4d4d;
+}

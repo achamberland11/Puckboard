@@ -1,4 +1,10 @@
-import { seasons, seasonDataPlayer, seasonDataGoaler, getCurrentSeason } from "./app.js";
+import {
+  seasons,
+  seasonDataPlayer,
+  seasonDataGoaler,
+  getCurrentSeason,
+  ensureCardContext,
+} from "./playerCardContext.js";
 import {
   loadGameLog,
   loadPlayerLanding,
@@ -990,6 +996,8 @@ export async function populatePlayerCard(card, player, onClose, navList) {
   loading.className = "player-card-loading";
   loading.textContent = "Loading...";
   card.appendChild(loading);
+
+  await ensureCardContext();
 
   const data = await loadPlayerLanding(player.ID);
   if (!data) {

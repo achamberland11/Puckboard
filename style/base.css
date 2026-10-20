@@ -36,7 +36,7 @@ h1 {
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow-sm);
   position: sticky;
-  top: 0;
+  top: var(--nav-height, 0px);
   z-index: 50;
 }
 

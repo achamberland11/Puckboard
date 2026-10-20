@@ -1,0 +1,94 @@
+/* Games grid + game cards (shared by home page strip and the Games page). */
+
+.games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.game-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  text-decoration: none;
+  color: inherit;
+  transition:
+    border-color 0.2s,
+    transform 0.15s,
+    box-shadow 0.2s;
+}
+
+.game-card:hover {
+  border-color: var(--color-accent);
+  transform: translateY(-2px);
+  box-shadow: var(--glass-shadow);
+}
+
+.game-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.4rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.game-card-tv {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+
+.game-card-teams {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.game-card-team {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.95rem;
+}
+
+.game-card-team .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-card-team .score {
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Date navigation on the Games page. */
+
+.game-date-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.game-date-label {
+  flex: 1;
+  min-width: 200px;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: bold;
+}
+
+.game-date-nav .button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

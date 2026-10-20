@@ -1,0 +1,286 @@
+/* Game preview page. */
+
+.game-header {
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.game-header-state {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin-bottom: 1rem;
+}
+
+.game-header-teams {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.game-header-team {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 200px;
+}
+
+.game-header-team.home {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.game-header-logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+
+.game-header-name {
+  font-size: 1.15rem;
+  font-weight: bold;
+}
+
+.game-header-team.home .game-header-info {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+}
+
+.game-header-record {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.game-header-score {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+.game-header-at {
+  font-size: 1.1rem;
+  color: var(--color-text-muted);
+}
+
+.game-header-sub {
+  margin-top: 1rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+/* Two-column section grid. */
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.preview-grid .card,
+.section > .card {
+  padding: 0.75rem 1rem;
+}
+
+/* Team comparison table. */
+.compare-table .compare-metric {
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 0.83rem;
+}
+
+.compare-table .compare-away,
+.compare-table .compare-home {
+  font-variant-numeric: tabular-nums;
+  font-weight: bold;
+}
+
+.compare-table thead .compare-away,
+.compare-table thead .compare-home {
+  color: var(--color-text);
+}
+
+.compare-table .edge {
+  color: var(--color-value-high);
+}
+
+/* Matchup edges. */
+.edges-card {
+  padding: 0.4rem 1rem;
+}
+
+.edge-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(160px, 1.4fr) 1fr;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--glass-border);
+  font-size: 0.88rem;
+}
+
+.edge-row:last-child {
+  border-bottom: none;
+}
+
+.edge-side.away {
+  text-align: right;
+}
+
+.edge-side.home {
+  text-align: left;
+}
+
+.edge-side.advantage {
+  color: var(--color-value-high);
+  font-weight: bold;
+}
+
+.edge-label {
+  text-align: center;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+/* Goalie starter cards. */
+.goalie-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+}
+
+.goalie-tag {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-accent);
+}
+
+.goalie-top {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.goalie-headshot {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-card-stat-bg);
+}
+
+.goalie-name {
+  font-size: 1.05rem;
+  font-weight: bold;
+}
+
+.goalie-team {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.goalie-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+}
+
+.goalie-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.5rem 0.25rem;
+  border-radius: var(--border-radius-sm);
+  background: var(--color-card-stat-bg);
+}
+
+.goalie-stat-value {
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+}
+
+.goalie-stat-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.goalie-link {
+  font-size: 0.78rem;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.goalie-link:hover {
+  text-decoration: underline;
+}
+
+/* H2H. */
+.h2h-card {
+  padding: 1rem 1.25rem;
+}
+
+.h2h-record {
+  font-size: 1.1rem;
+  font-weight: bold;
+  margin-bottom: 0.75rem;
+}
+
+.hot-table th,
+.hot-table td {
+  text-align: left;
+}
+
+.hot-table td:first-child {
+  text-transform: capitalize;
+  color: var(--color-text-secondary);
+}
+
+.hot-value {
+  color: var(--color-text-muted);
+}
+
+.tier-slot {
+  display: none;
+}
+
+/* Wide advanced tables scroll inside their card. */
+.table-scroll {
+  overflow-x: auto;
+  padding: 0.25rem 0.5rem;
+}
+
+/* Career vs opponent. */
+.career-card {
+  padding: 0.75rem 1rem;
+}
+
+.career-title {
+  font-weight: bold;
+  margin-bottom: 0.35rem;
+}
+
+.career-subtitle {
+  margin: 0.65rem 0 0.25rem;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.career-status {
+  padding: 0.25rem 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+

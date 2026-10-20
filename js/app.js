@@ -1,15 +1,14 @@
-import { CACHE_KEY, loadPlayers, loadGoalies, loadRosterBirthDates, loadSkaterRealtime, removeCacheKeys } from "./api.js";
+import { CACHE_KEY, removeCacheKeys } from "./api.js";
 import {
-  addGoalerValueFields,
-  addPlayerValueFields,
-  addCategoryRanks,
-  computeAverageGVI,
-  computeRotoValues,
-  computeGoalieRotoValues,
-  computeTiers,
-  SKATER_RANK_CONFIG,
-  GOALIE_RANK_CONFIG,
-} from "./stats.js";
+  seasons,
+  seasonDataPlayer,
+  seasonDataGoaler,
+  loadSeasonStore,
+  recomputeValueIndexes,
+  recomputeRotoValues,
+  computeAllTiers,
+} from "./seasonStore.js";
+import { setPlayerCardContext } from "./playerCardContext.js";
 import {
   renderPlayers,
   resetHidden,
@@ -52,9 +51,7 @@ const Position = {
   REMOVED: "Removed",
 };
 
-const seasons = ["20262027", "20252026", "20242025", "20232024", "20222023", "20212022"];
-const seasonDataPlayer = {};
-const seasonDataGoaler = {};
+
 
 function filterByPosition(players, position) {
   switch (position) {
@@ -90,19 +87,6 @@ function filterBySearch(players, query) {
     const team = (p.Team || "").toLowerCase();
     return name.includes(q) || team.includes(q);
   });
-}
-
-function computeAge(birthDate, season) {
-  if (!birthDate) return 0;
-  const birth = new Date(birthDate);
-  if (isNaN(birth)) return 0;
-  const start = new Date(Number(season.slice(0, 4)), 9, 1);
-  let age = start.getFullYear() - birth.getFullYear();
-  const monthDiff = start.getMonth() - birth.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && start.getDate() < birth.getDate())) {
-    age--;
-  }
-  return age;
 }
 
 function render() {
@@ -283,15 +267,24 @@ function buildWeightsPanel() {
   // zoom, and font-load shifts without a scroll listener.
   const filtersBar = document.querySelector(".filters-bar");
   if (filtersBar) {
+    const navBar = document.querySelector(".site-nav");
     const setStickyOffset = () => {
+      const navHeight =
+        parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue(
+            "--nav-height",
+          ),
+        ) || 0;
       document.documentElement.style.setProperty(
         "--sticky-offset",
-        `${filtersBar.offsetHeight}px`,
+        `${navHeight + filtersBar.offsetHeight}px`,
       );
     };
     setStickyOffset();
     if ("ResizeObserver" in window) {
-      new ResizeObserver(setStickyOffset).observe(filtersBar);
+      const observer = new ResizeObserver(setStickyOffset);
+      observer.observe(filtersBar);
+      if (navBar) observer.observe(navBar);
     } else {
       window.addEventListener("resize", setStickyOffset);
     }
@@ -351,83 +344,16 @@ function buildWeightsPanel() {
     }
   });
 
-  const birthDates = await loadRosterBirthDates();
+  await loadSeasonStore();
+  setPlayerCardContext({
+    seasons,
+    seasonDataPlayer,
+    seasonDataGoaler,
+    currentSeason: getCurrentSeason,
+  });
 
-  const seasonResults = await Promise.all(
-    seasons.map(async (s) => {
-      const [players, goalies, realtime] = await Promise.all([
-        loadPlayers(s),
-        loadGoalies(s),
-        loadSkaterRealtime(s),
-      ]);
-      return { s, players, goalies, realtime };
-    }),
-  );
-
-  for (const { s, players, goalies, realtime } of seasonResults) {
-    const realtimeMap = new Map(realtime.map((r) => [r.playerId, r]));
-    for (const player of players) {
-      const rt = realtimeMap.get(player.ID);
-      if (rt) {
-        player.BLK = rt.blockedShots ?? 0;
-        player.HITS = rt.hits ?? 0;
-      }
-      player.Age = computeAge(birthDates.get(player.ID), s);
-    }
-    for (const goalie of goalies) {
-      goalie.Age = computeAge(birthDates.get(goalie.ID), s);
-    }
-
-    addPlayerValueFields(players, getVisibleRotoCategories());
-    addGoalerValueFields(goalies, getVisibleGoalieRotoCategories());
-    addCategoryRanks(players, SKATER_RANK_CONFIG);
-    addCategoryRanks(goalies, GOALIE_RANK_CONFIG);
-
-    seasonDataPlayer[s] = players;
-    seasonDataGoaler[s] = goalies;
-  }
-
-  function recomputeValueIndexes() {
-    const skaterCats = getVisibleRotoCategories();
-    const goalieCats = getVisibleGoalieRotoCategories();
-    for (const s of seasons) {
-      addPlayerValueFields(seasonDataPlayer[s], skaterCats);
-      addGoalerValueFields(seasonDataGoaler[s], goalieCats);
-    }
-    const skaters = computeAverageGVI(seasonDataPlayer);
-    const goalies = computeAverageGVI(seasonDataGoaler);
-    for (const s of seasons) {
-      for (const player of seasonDataPlayer[s]) {
-        player.AGVI = skaters.avgMap.get(player.Joueurs) || 0;
-        player.Trend = skaters.trendMap.get(player.Joueurs) || 0;
-        player.Stab = skaters.stabMap.get(player.Joueurs) || 0;
-      }
-      for (const goalie of seasonDataGoaler[s]) {
-        goalie.AGVI = goalies.avgMap.get(goalie.Gardiens) || 0;
-        goalie.Trend = goalies.trendMap.get(goalie.Gardiens) || 0;
-        goalie.Stab = goalies.stabMap.get(goalie.Gardiens) || 0;
-      }
-    }
-  }
-
-  function applyRotoVisibility() {
-    computeRotoValues(seasonDataPlayer[season], getVisibleRotoCategories());
-    computeGoalieRotoValues(seasonDataGoaler[season], getVisibleGoalieRotoCategories());
-  }
-
-  function applyTiersAll() {
-    for (const s of seasons) {
-      computeTiers(seasonDataPlayer[s], seasonDataGoaler[s]);
-    }
-  }
-
-  recomputeValueIndexes();
-
-  for (const s of seasons) {
-    computeRotoValues(seasonDataPlayer[s], getVisibleRotoCategories());
-    computeGoalieRotoValues(seasonDataGoaler[s], getVisibleGoalieRotoCategories());
-  }
-  applyTiersAll();
+  const applyRotoVisibility = () => recomputeRotoValues();
+  const applyTiersAll = () => computeAllTiers();
 
   allPlayers = seasonDataPlayer[season];
   goalies = seasonDataGoaler[season];
@@ -437,20 +363,14 @@ function buildWeightsPanel() {
 
   onColumnVisibilityChange(() => {
     recomputeValueIndexes();
-    for (const s of seasons) {
-      computeRotoValues(seasonDataPlayer[s], getVisibleRotoCategories());
-      computeGoalieRotoValues(seasonDataGoaler[s], getVisibleGoalieRotoCategories());
-    }
+    recomputeRotoValues();
     applyTiersAll();
     render();
   });
 
   onWeightsChange(() => {
     recomputeValueIndexes();
-    for (const s of seasons) {
-      computeRotoValues(seasonDataPlayer[s], getVisibleRotoCategories());
-      computeGoalieRotoValues(seasonDataGoaler[s], getVisibleGoalieRotoCategories());
-    }
+    recomputeRotoValues();
     applyTiersAll();
     render();
   });

@@ -1,0 +1,63 @@
+/* Home page layout. */
+
+.page-sub {
+  margin: -0.75rem 0 1.75rem;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+}
+
+.standings-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.standings-tabs .button.active {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.standings-table td:nth-child(n + 4),
+.standings-table th:nth-child(n + 4) {
+  font-variant-numeric: tabular-nums;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  padding: 0.25rem 0.5rem;
+}
+
+.leaders-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.leaders-card {
+  padding: 0.9rem 1rem 1rem;
+}
+
+.leaders-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.leaders-card-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: bold;
+}
+
+.leaders-card .see-all {
+  font-size: 0.78rem;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.leaders-card .see-all:hover {
+  text-decoration: underline;
+}

@@ -3,6 +3,8 @@ import { storageGet, storageSet, removeCacheKeys } from "./storage.js";
 const CACHE_KEY = "nhl_stats_cache";
 const CACHE_TTL = 60 * 60 * 1000 * 24;
 const ROSTER_TTL = CACHE_TTL * 7;
+const SHORT_TTL = 5 * 60 * 1000;
+const MEDIUM_TTL = 60 * 60 * 1000;
 
 const TEAMS = [
   "ANA",
@@ -569,9 +571,137 @@ async function loadEdgeGoalieDetail(playerId, season) {  try {
   }
 }
 
+////// Games / schedule / league (home + games + game preview pages)
+
+function estDateISO(date = new Date()) {
+  // en-CA locale yields YYYY-MM-DD; the timezone keeps the date in EST/EDT
+  // so "today" does not roll over at UTC midnight.
+  return date.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+function shiftDate(dateStr, days) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+async function loadSchedule(dateStr) {
+  // dateStr: YYYY-MM-DD. The API returns a week (gameWeek); pick the day.
+  try {
+    const url = `/api-web/v1/schedule/${dateStr}`;
+    const data = await fetchWithCache(
+      url,
+      CACHE_KEY + "_schedule_" + dateStr,
+      SHORT_TTL,
+    );
+    const day = (data.gameWeek || []).find((w) => w.date === dateStr);
+    return {
+      date: dateStr,
+      games: (day && day.games) || data.games || [],
+    };
+  } catch (err) {
+    console.error("Failed to load schedule:", err);
+    return { date: dateStr, games: [] };
+  }
+}
+
+async function loadStandings() {
+  try {
+    const data = await fetchWithCache(
+      "/api-web/v1/standings/now",
+      CACHE_KEY + "_standings",
+      MEDIUM_TTL,
+    );
+    return data.standings || [];
+  } catch (err) {
+    console.error("Failed to load standings:", err);
+    return [];
+  }
+}
+
+async function loadSkaterLeaders(categories, limit = 10) {
+  try {
+    const url = `/api-web/v1/skater-stats-leaders/current?categories=${categories}&limit=${limit}`;
+    return await fetchWithCache(
+      url,
+      CACHE_KEY + "_skater_leaders_" + categories + "_" + limit,
+      SHORT_TTL,
+    );
+  } catch (err) {
+    console.error("Failed to load skater leaders:", err);
+    return {};
+  }
+}
+
+async function loadGoalieLeaders(categories, limit = 10) {
+  try {
+    const url = `/api-web/v1/goalie-stats-leaders/current?categories=${categories}&limit=${limit}`;
+    return await fetchWithCache(
+      url,
+      CACHE_KEY + "_goalie_leaders_" + categories + "_" + limit,
+      SHORT_TTL,
+    );
+  } catch (err) {
+    console.error("Failed to load goalie leaders:", err);
+    return {};
+  }
+}
+
+async function loadTeamSummary(season) {
+  try {
+    const url = `/api/stats/rest/en/team/summary?limit=-1&sort=points&dir=desc&cayenneExp=seasonId=${season}%20and%20gameTypeId=2`;
+    return await fetchWithCache(
+      url,
+      CACHE_KEY + "_team_summary_" + season,
+      MEDIUM_TTL,
+    );
+  } catch (err) {
+    console.error("Failed to load team summary:", err);
+    return [];
+  }
+}
+
+async function loadGameLanding(gameId) {
+  try {
+    const url = `/api-web/v1/gamecenter/${gameId}/landing`;
+    return await fetchWithCache(
+      url,
+      CACHE_KEY + "_game_landing_" + gameId,
+      SHORT_TTL,
+    );
+  } catch (err) {
+    console.error("Failed to load game landing:", err);
+    return null;
+  }
+}
+
+async function loadClubSchedule(team) {
+  try {
+    const url = `/api-web/v1/club-schedule-season/${team}/now`;
+    return await fetchWithCache(
+      url,
+      CACHE_KEY + "_club_sched_" + team,
+      MEDIUM_TTL,
+    );
+  } catch (err) {
+    console.error("Failed to load club schedule:", err);
+    return null;
+  }
+}
+
 export {
   CACHE_KEY,
   fetchWithCache,
+  estDateISO,
+  shiftDate,
+  loadSchedule,
+  loadStandings,
+  loadSkaterLeaders,
+  loadGoalieLeaders,
+  loadTeamSummary,
+  loadGameLanding,
+  loadClubSchedule,
   loadPlayers,
   loadGoalies,
   loadGameLog,
