@@ -662,6 +662,34 @@ async function loadTeamSummary(season) {
   }
 }
 
+async function loadTeamPowerPlay(season) {
+  try {
+    const url = `/api/stats/rest/en/team/powerplay?limit=-1&cayenneExp=seasonId=${season}%20and%20gameTypeId=2`;
+    return await fetchWithCache(
+      url,
+      CACHE_KEY + "_team_pp_" + season,
+      MEDIUM_TTL,
+    );
+  } catch (err) {
+    console.error("Failed to load team power play:", err);
+    return [];
+  }
+}
+
+async function loadTeamPenaltyKill(season) {
+  try {
+    const url = `/api/stats/rest/en/team/penaltykill?limit=-1&cayenneExp=seasonId=${season}%20and%20gameTypeId=2`;
+    return await fetchWithCache(
+      url,
+      CACHE_KEY + "_team_pk_" + season,
+      MEDIUM_TTL,
+    );
+  } catch (err) {
+    console.error("Failed to load team penalty kill:", err);
+    return [];
+  }
+}
+
 async function loadGameLanding(gameId) {
   try {
     const url = `/api-web/v1/gamecenter/${gameId}/landing`;
@@ -700,6 +728,8 @@ export {
   loadSkaterLeaders,
   loadGoalieLeaders,
   loadTeamSummary,
+  loadTeamPowerPlay,
+  loadTeamPenaltyKill,
   loadGameLanding,
   loadClubSchedule,
   loadPlayers,

@@ -1,6 +1,9 @@
 import {
   loadGameLanding,
   loadTeamSummary,
+  loadTeamPowerPlay,
+  loadTeamPenaltyKill,
+  loadStandings,
   loadClubSchedule,
   loadGameLog,
   loadPlayerLanding,
@@ -185,62 +188,283 @@ function renderHeader(landing, awayRecord, homeRecord) {
 
 // --- Team comparison ------------------------------------------------------
 
+function mean(values) {
+  const nums = values.filter((value) => Number.isFinite(value));
+  if (!nums.length) return null;
+  return nums.reduce((sum, value) => sum + value, 0) / nums.length;
+}
+
+function buildRankMap(rows, keyFn, valueFn, direction = "high") {
+  const items = (rows || [])
+    .map((row) => ({ key: keyFn(row), value: Number(valueFn(row)) }))
+    .filter((item) => item.key != null && Number.isFinite(item.value));
+  items.sort((a, b) =>
+    direction === "high" ? b.value - a.value : a.value - b.value,
+  );
+
+  const ranks = new Map();
+  let previousValue = null;
+  let previousRank = 0;
+  items.forEach((item, index) => {
+    const rank =
+      previousValue !== null && item.value === previousValue
+        ? previousRank
+        : index + 1;
+    ranks.set(item.key, rank);
+    previousValue = item.value;
+    previousRank = rank;
+  });
+  return ranks;
+}
+
+function splitRecord(stats, prefix) {
+  if (!stats) return null;
+  const wins = stats[`${prefix}Wins`];
+  const losses = stats[`${prefix}Losses`];
+  const otLosses = stats[`${prefix}OtLosses`];
+  if (wins == null) return null;
+  const games = stats[`${prefix}GamesPlayed`] ?? wins + losses + otLosses;
+  const points = stats[`${prefix}Points`] ?? wins * 2 + otLosses;
+  return {
+    text: `${wins}-${losses}-${otLosses}`,
+    pct: games > 0 ? points / (games * 2) : null,
+  };
+}
+
+function buildComparisonContext({
+  teamSummary,
+  standings,
+  powerplay,
+  penaltykill,
+  season,
+}) {
+  const standingsSeason = (standings || []).filter(
+    (row) => String(row.seasonId) === String(season),
+  );
+
+  return {
+    powerPlayById: new Map((powerplay || []).map((row) => [row.teamId, row])),
+    penaltyKillById: new Map(
+      (penaltykill || []).map((row) => [row.teamId, row]),
+    ),
+    standingsByAbbrev: new Map(
+      standingsSeason.map((row) => [row.teamAbbrev?.default, row]),
+    ),
+    ppTimeAverage: mean(
+      (powerplay || []).map((row) => Number(row.ppTimeOnIcePerGame)),
+    ),
+    pkTimeAverage: mean(
+      (penaltykill || []).map((row) => Number(row.pkTimeOnIcePerGame)),
+    ),
+    ranks: {
+      record: buildRankMap(teamSummary, (t) => t.teamId, (t) => t.pointPct),
+      points: buildRankMap(teamSummary, (t) => t.teamId, (t) => t.points),
+      pointPct: buildRankMap(teamSummary, (t) => t.teamId, (t) => t.pointPct),
+      goalsForPerGame: buildRankMap(
+        teamSummary,
+        (t) => t.teamId,
+        (t) => t.goalsForPerGame,
+      ),
+      goalsAgainstPerGame: buildRankMap(
+        teamSummary,
+        (t) => t.teamId,
+        (t) => t.goalsAgainstPerGame,
+        "low",
+      ),
+      shotsForPerGame: buildRankMap(
+        teamSummary,
+        (t) => t.teamId,
+        (t) => t.shotsForPerGame,
+      ),
+      shotsAgainstPerGame: buildRankMap(
+        teamSummary,
+        (t) => t.teamId,
+        (t) => t.shotsAgainstPerGame,
+        "low",
+      ),
+      powerPlayPct: buildRankMap(
+        teamSummary,
+        (t) => t.teamId,
+        (t) => t.powerPlayPct,
+      ),
+      penaltyKillPct: buildRankMap(
+        teamSummary,
+        (t) => t.teamId,
+        (t) => t.penaltyKillPct,
+      ),
+      faceoffWinPct: buildRankMap(
+        teamSummary,
+        (t) => t.teamId,
+        (t) => t.faceoffWinPct,
+      ),
+      teamShutouts: buildRankMap(
+        teamSummary,
+        (t) => t.teamId,
+        (t) => t.teamShutouts,
+      ),
+      ppTime: buildRankMap(
+        powerplay,
+        (t) => t.teamId,
+        (t) => t.ppTimeOnIcePerGame,
+      ),
+      pkTime: buildRankMap(
+        penaltykill,
+        (t) => t.teamId,
+        (t) => t.pkTimeOnIcePerGame,
+        "low",
+      ),
+      homeRecord: buildRankMap(
+        standingsSeason,
+        (s) => s.teamAbbrev?.default,
+        (s) => splitRecord(s, "home")?.pct,
+      ),
+      roadRecord: buildRankMap(
+        standingsSeason,
+        (s) => s.teamAbbrev?.default,
+        (s) => splitRecord(s, "road")?.pct,
+      ),
+    },
+  };
+}
+
+function withComparisonExtras(summary, abbrev, context) {
+  const powerPlay = context.powerPlayById.get(summary.teamId);
+  const penaltyKill = context.penaltyKillById.get(summary.teamId);
+  const standings = context.standingsByAbbrev.get(abbrev);
+
+  const ppTime = Number(powerPlay?.ppTimeOnIcePerGame);
+  const pkTime = Number(penaltyKill?.pkTimeOnIcePerGame);
+
+  const ranks = {};
+  for (const [key, map] of Object.entries(context.ranks)) {
+    const rankKey =
+      key === "homeRecord" || key === "roadRecord" ? abbrev : summary.teamId;
+    ranks[key] = map.get(rankKey);
+  }
+
+  return {
+    ...summary,
+    homeRecord: splitRecord(standings, "home"),
+    roadRecord: splitRecord(standings, "road"),
+    ppTime: Number.isFinite(ppTime) ? ppTime : null,
+    pkTime: Number.isFinite(pkTime) ? pkTime : null,
+    ppTimeAverage: context.ppTimeAverage,
+    pkTimeAverage: context.pkTimeAverage,
+    ranks,
+  };
+}
+
 const COMPARE_ROWS = [
-  { label: "Record", raw: null, text: (s) => `${s.wins}-${s.losses}-${s.otLosses}` },
-  { label: "Points", raw: (s) => s.points, fmt: (v) => v, better: "high" },
+  {
+    label: "Record",
+    raw: (s) => s.pointPct,
+    text: (s) => `${s.wins}-${s.losses}-${s.otLosses}`,
+    better: "high",
+    rankKey: "record",
+  },
+  {
+    label: "Home record",
+    raw: (s) => s.homeRecord?.pct ?? null,
+    text: (s) => s.homeRecord?.text ?? "—",
+    better: "high",
+    rankKey: "homeRecord",
+    available: (away, home) => !!away.homeRecord && !!home.homeRecord,
+  },
+  {
+    label: "Away record",
+    raw: (s) => s.roadRecord?.pct ?? null,
+    text: (s) => s.roadRecord?.text ?? "—",
+    better: "high",
+    rankKey: "roadRecord",
+    available: (away, home) => !!away.roadRecord && !!home.roadRecord,
+  },
+  {
+    label: "Points",
+    raw: (s) => s.points,
+    fmt: (v) => v,
+    better: "high",
+    rankKey: "points",
+  },
   {
     label: "Points %",
     raw: (s) => s.pointPct,
     fmt: (v) => v.toFixed(3).replace(/^0/, ""),
     better: "high",
+    rankKey: "pointPct",
   },
   {
     label: "Goals for / game",
     raw: (s) => s.goalsForPerGame,
     fmt: (v) => num(v),
     better: "high",
+    rankKey: "goalsForPerGame",
   },
   {
     label: "Goals against / game",
     raw: (s) => s.goalsAgainstPerGame,
     fmt: (v) => num(v),
     better: "low",
+    rankKey: "goalsAgainstPerGame",
   },
   {
     label: "Shots for / game",
     raw: (s) => s.shotsForPerGame,
     fmt: (v) => num(v, 1),
     better: "high",
+    rankKey: "shotsForPerGame",
   },
   {
     label: "Shots allowed / game",
     raw: (s) => s.shotsAgainstPerGame,
     fmt: (v) => num(v, 1),
     better: "low",
+    rankKey: "shotsAgainstPerGame",
   },
   {
     label: "Power play",
     raw: (s) => s.powerPlayPct,
     fmt: (v) => pct(v),
     better: "high",
+    rankKey: "powerPlayPct",
+  },
+  {
+    label: "PP TOI / game",
+    raw: (s) => s.ppTime,
+    fmt: (v) => fmtToi(v),
+    better: "high",
+    rankKey: "ppTime",
+    note: (s) => s.ppTimeAverage,
+    available: (away, home) => away.ppTime != null && home.ppTime != null,
   },
   {
     label: "Penalty kill",
     raw: (s) => s.penaltyKillPct,
     fmt: (v) => pct(v),
     better: "high",
+    rankKey: "penaltyKillPct",
+  },
+  {
+    label: "PK TOI / game",
+    raw: (s) => s.pkTime,
+    fmt: (v) => fmtToi(v),
+    better: "low",
+    rankKey: "pkTime",
+    note: (s) => s.pkTimeAverage,
+    available: (away, home) => away.pkTime != null && home.pkTime != null,
   },
   {
     label: "Faceoff %",
     raw: (s) => s.faceoffWinPct,
     fmt: (v) => pct(v),
     better: "high",
+    rankKey: "faceoffWinPct",
   },
   {
     label: "Shutouts",
     raw: (s) => s.teamShutouts,
     fmt: (v) => v,
     better: "high",
+    rankKey: "teamShutouts",
   },
 ];
 
@@ -256,11 +480,15 @@ function compareTable(away, home, awayAbbrev, homeAbbrev) {
 
   const tbody = document.createElement("tbody");
   for (const def of COMPARE_ROWS) {
+    if (def.available && !def.available(away, home)) continue;
+
     const tr = document.createElement("tr");
     const awayVal = def.raw ? def.raw(away) : null;
     const homeVal = def.raw ? def.raw(home) : null;
     const awayText = def.text ? def.text(away) : def.fmt(awayVal);
     const homeText = def.text ? def.text(home) : def.fmt(homeVal);
+    const awayRank = def.rankKey ? away.ranks?.[def.rankKey] : null;
+    const homeRank = def.rankKey ? home.ranks?.[def.rankKey] : null;
 
     let edge = null;
     if (def.better && awayVal != null && homeVal != null && awayVal !== homeVal) {
@@ -270,8 +498,22 @@ function compareTable(away, home, awayAbbrev, homeAbbrev) {
 
     const awayTd = el("td", `compare-away${edge === "away" ? " edge" : ""}`, String(awayText));
     const homeTd = el("td", `compare-home${edge === "home" ? " edge" : ""}`, String(homeText));
+    if (awayRank != null) {
+      awayTd.appendChild(el("span", "team-tag", ` #${awayRank}`));
+    }
+    if (homeRank != null) {
+      homeTd.appendChild(el("span", "team-tag", ` #${homeRank}`));
+    }
     tr.appendChild(awayTd);
-    tr.appendChild(el("td", "compare-metric", def.label));
+
+    const metricTd = el("td", "compare-metric", def.label);
+    const note = def.note ? def.note(away) : null;
+    if (Number.isFinite(note)) {
+      metricTd.appendChild(
+        el("span", "team-tag", ` · Lg avg ${fmtToi(note)}`),
+      );
+    }
+    tr.appendChild(metricTd);
     tr.appendChild(homeTd);
     tbody.appendChild(tr);
   }
@@ -780,8 +1022,9 @@ function parseToi(toi) {
 
 function fmtToi(totalSeconds) {
   if (!totalSeconds) return "—";
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = Math.round(totalSeconds % 60);
+  const total = Math.round(totalSeconds);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
@@ -1113,10 +1356,14 @@ async function main() {
   root.innerHTML = "";
   root.appendChild(renderHeader(landing, awayRecord, homeRecord));
 
-  const [teamSummary, awaySchedule] = await Promise.all([
-    loadTeamSummary(landing.season),
-    loadClubSchedule(away.abbrev),
-  ]);
+  const [teamSummary, awaySchedule, standings, powerplay, penaltykill] =
+    await Promise.all([
+      loadTeamSummary(landing.season),
+      loadClubSchedule(away.abbrev),
+      loadStandings(),
+      loadTeamPowerPlay(landing.season),
+      loadTeamPenaltyKill(landing.season),
+    ]);
 
   const awaySummary = teamSummary.find((t) => t.teamId === away.id);
   const homeSummary = teamSummary.find((t) => t.teamId === home.id);
@@ -1125,10 +1372,23 @@ async function main() {
   const homeGoalie = matchup.goalieComparison?.homeTeam?.leaders?.[0];
 
   if (awaySummary && homeSummary) {
-    const compare = section("Team comparison", formatSeason(landing.season));
+    const context = buildComparisonContext({
+      teamSummary,
+      standings,
+      powerplay,
+      penaltykill,
+      season: landing.season,
+    });
+    const awayCompare = withComparisonExtras(awaySummary, away.abbrev, context);
+    const homeCompare = withComparisonExtras(homeSummary, home.abbrev, context);
+
+    const compare = section(
+      "Team comparison",
+      `${formatSeason(landing.season)} · # = NHL rank`,
+    );
     const card = el("div", "card");
     card.appendChild(
-      compareTable(awaySummary, homeSummary, away.abbrev, home.abbrev),
+      compareTable(awayCompare, homeCompare, away.abbrev, home.abbrev),
     );
     compare.appendChild(card);
     root.appendChild(compare);
@@ -1136,8 +1396,8 @@ async function main() {
     root.appendChild(
       renderEdges(
         buildEdges(
-          awaySummary,
-          homeSummary,
+          awayCompare,
+          homeCompare,
           away.abbrev,
           home.abbrev,
           awayGoalie,
