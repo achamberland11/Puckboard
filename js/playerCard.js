@@ -24,6 +24,10 @@ import {
   seasonAdvCells,
   seasonGoalieCells,
   arrowChar,
+  parseTOI,
+  fmtTOI,
+  fmtSigned,
+  fmtPct,
 } from "./sustainability.js";
 import { FIELD_INFO, SECTION_INFO } from "./fields.js";
 
@@ -79,18 +83,40 @@ function depthLabelsForPlayer(depthCharts, teamAbbrev, fullName) {
   return [...new Set(labels)];
 }
 
-function buildHeaderSection(data, tier, age, lineLabels = []) {
+function rebuildHeaderAdvanced(goalie, currentStats, currentLabels, careerStats, careerLabels, currentTitle, careerTitle) {
+  const container = document.getElementById("player-advanced-stats-grid-container");
+  if (!container) return;
+  container.textContent = "";
+  if (currentStats) {
+    container.appendChild(
+      buildStatsSection(currentTitle, currentStats, currentLabels, SECTION_INFO.currentSeason),
+    );
+  }
+  if (careerStats) {
+    container.appendChild(
+      buildStatsSection(careerTitle, careerStats, careerLabels, SECTION_INFO.career),
+    );
+  }
+}
+
+function buildHeaderSection(data, tier, age, lineLabels = [], currentAvgToi = null) {
   const header = document.createElement("div");
   header.className = "player-card-header";
+
+  const topContainer = document.createElement("div");
+  topContainer.id = "player-info";
+  topContainer.className = "player-section-container";
+  header.appendChild(topContainer);
 
   const img = document.createElement("img");
   img.className = "player-card-headshot";
   img.src = data.headshot;
   img.alt = "";
-  header.appendChild(img);
+  topContainer.appendChild(img);
 
   const bio = document.createElement("div");
   bio.className = "player-card-bio";
+  topContainer.appendChild(bio);
 
   const teamLine = document.createElement("div");
   teamLine.className = "player-card-bio-team";
@@ -142,13 +168,18 @@ function buildHeaderSection(data, tier, age, lineLabels = []) {
   bio.appendChild(nameLine);
   bio.appendChild(teamLine);
   bio.appendChild(detail);
-  header.appendChild(bio);
 
   const statsContainer = document.createElement("div");
   statsContainer.textContent = "";
   statsContainer.className = "player-section-container";
   statsContainer.id = "player-stats-grid-container";
   header.appendChild(statsContainer);
+
+  const advancedContainer = document.createElement("div");
+  advancedContainer.textContent = "";
+  advancedContainer.className = "player-section-container";
+  advancedContainer.id = "player-advanced-stats-grid-container";
+  header.appendChild(advancedContainer);
 
   const goalie = isGoalie(data);
   if (data.featuredStats?.regularSeason?.subSeason) {
@@ -170,11 +201,13 @@ function buildHeaderSection(data, tier, age, lineLabels = []) {
         ["points", "P"],
         ["plusMinus", "+/-"],
         ["powerPlayPoints", "PPP"],
+        ["avgToi", "Avg TOI"],
       ];
+    const subWithToi = { ...sub, avgToi: currentAvgToi };
     statsContainer.appendChild(
       buildStatsSection(
         `Current Season (${formatSeason(data.featuredStats.season)})`,
-        sub,
+        subWithToi,
         labels,
         SECTION_INFO.currentSeason,
       ),
@@ -199,6 +232,7 @@ function buildHeaderSection(data, tier, age, lineLabels = []) {
         ["assists", "A"],
         ["points", "P"],
         ["plusMinus", "+/-"],
+        ["powerPlayPoints", "PPP"],
         ["avgToi", "Avg TOI"],
       ];
     statsContainer.appendChild(
@@ -211,6 +245,90 @@ function buildHeaderSection(data, tier, age, lineLabels = []) {
   //   const labels = [["gamesPlayed", "GP"], ["wins", "W"], ["losses", "L"], ["goalsAgainstAvg", "GAA"], ["savePctg", "SV%"], ["shutouts", "SO"]];
   //   card.appendChild(buildStatsSection("Career (Playoffs)", playoffs, labels));
   // }
+
+  if (goalie) {
+    const gStats = { gsax: "…", gsax60: "…" };
+    const gCareer = { gsax: "…", gsax60: "…" };
+    if (data.featuredStats?.regularSeason?.subSeason) {
+      advancedContainer.appendChild(
+        buildStatsSection(
+          `Current Season (${formatSeason(data.featuredStats.season)})`,
+          gStats,
+          [
+            ["gsax", "GSAx"],
+            ["gsax60", "GSAx/60"],
+          ],
+          SECTION_INFO.currentSeason,
+        ),
+      );
+    }
+    if (data.careerTotals?.regularSeason) {
+      advancedContainer.appendChild(
+        buildStatsSection("Career (NHL Regular Season)", gCareer, [
+          ["gsax", "GSAx"],
+          ["gsax60", "GSAx/60"],
+        ], SECTION_INFO.career),
+      );
+    }
+  } else {
+    const shCurrent = data.featuredStats?.regularSeason?.subSeason?.shootingPctg;
+    const shCareer = data.careerTotals?.regularSeason?.shootingPctg;
+    const curStats = {
+      shootingPctg: shCurrent,
+      ixg: "…",
+      xgfPctg: "…",
+      rxgf: "…",
+      ipp: "…",
+      oishPctg: "…",
+      pdo: "…",
+      avgToi: currentAvgToi,
+    };
+    const careerStats = {
+      shootingPctg: shCareer,
+      ixg: "…",
+      xgfPctg: "…",
+      rxgf: "…",
+      ipp: "…",
+      oishPctg: "…",
+      pdo: "…",
+      powerPlayPoints: data.careerTotals?.regularSeason?.powerPlayPoints,
+    };
+    const curLabels = [
+      ["shootingPctg", "SH%"],
+      ["ixg", "IXG"],
+      ["xgfPctg", "XGF%"],
+      ["rxgf", "RXGF%"],
+      ["ipp", "IPP"],
+      ["oishPctg", "OISH%"],
+      ["pdo", "PDO"],
+      ["avgToi", "Avg TOI"],
+    ];
+    const careerLabels = [
+      ["shootingPctg", "SH%"],
+      ["ixg", "IXG"],
+      ["xgfPctg", "XGF%"],
+      ["rxgf", "RXGF%"],
+      ["ipp", "IPP"],
+      ["oishPctg", "OISH%"],
+      ["pdo", "PDO"],
+      ["powerPlayPoints", "PPP"],
+    ];
+    if (data.featuredStats?.regularSeason?.subSeason) {
+      advancedContainer.appendChild(
+        buildStatsSection(
+          `Current Season (${formatSeason(data.featuredStats.season)})`,
+          curStats,
+          curLabels,
+          SECTION_INFO.currentSeason,
+        ),
+      );
+    }
+    if (data.careerTotals?.regularSeason) {
+      advancedContainer.appendChild(
+        buildStatsSection("Career (NHL Regular Season)", careerStats, careerLabels, SECTION_INFO.career),
+      );
+    }
+  }
 
   return header;
 }
@@ -918,7 +1036,7 @@ function renderLuckRows(tbody, rows) {
   }
 }
 
-async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks = {}) {
+async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks = {}, landing = null) {
   const season = findCardSeason(playerID, goalie);
   if (!season || !tablePlayer) {
     tbody.textContent = "";
@@ -936,20 +1054,32 @@ async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks =
         loadMoneyPuckGoalies(season),
         loadEdgeGoalieDetail(playerID, season),
       ]);
-      const career = careerGoalieSave(seasonDataGoaler, seasons, playerID);
-      hooks.seasonsFill?.({ [season]: mpMap[playerID] });
-      loadMoneyPuckGameLog(playerID, season).then((g) =>
-        hooks.last5Fill?.(g),
-      );
-      renderLuckRows(
-        tbody,
-        goalieLuckRows({
-          row: tablePlayer,
-          mp: mpMap[playerID],
-          edge,
-          career,
-        }),
-      );
+       const career = careerGoalieSave(seasonDataGoaler, seasons, playerID);
+       hooks.seasonsFill?.({ [season]: mpMap[playerID] });
+       loadMoneyPuckGameLog(playerID, season).then((g) =>
+         hooks.last5Fill?.(g),
+       );
+       const curGoalieCells = mpMap[playerID]
+         ? seasonGoalieCells(mpMap[playerID])
+         : null;
+       rebuildHeaderAdvanced(
+         true,
+         { gsax: curGoalieCells?.gsax ?? "…", gsax60: curGoalieCells?.gsax60 ?? "…" },
+         [["gsax", "GSAx"], ["gsax60", "GSAx/60"]],
+         { gsax: "…", gsax60: "…" },
+         [["gsax", "GSAx"], ["gsax60", "GSAx/60"]],
+         `Current Season (${formatSeason(season)})`,
+         "Career (NHL Regular Season)",
+       );
+       renderLuckRows(
+         tbody,
+         goalieLuckRows({
+           row: tablePlayer,
+           mp: mpMap[playerID],
+           edge,
+           career,
+         }),
+       );
       // History for played seasons fills the remaining Seasons rows.
       const played = seasons.filter(
         (s) =>
@@ -958,14 +1088,44 @@ async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks =
       );
       if (played.length > 0) {
         try {
-          const mpH = await Promise.all(
-            played.map((s) => loadMoneyPuckGoalies(s)),
-          );
-          const combined = { [season]: mpMap[playerID] };
-          played.forEach((s, i) => {
-            combined[s] = mpH[i][playerID];
-          });
-          hooks.seasonsFill?.(combined);
+           const mpH = await Promise.all(
+             played.map((s) => loadMoneyPuckGoalies(s)),
+           );
+           const combined = { [season]: mpMap[playerID] };
+           played.forEach((s, i) => {
+             combined[s] = mpH[i][playerID];
+           });
+           hooks.seasonsFill?.(combined);
+           let careerGsax = 0;
+           let careerToiSec = 0;
+           for (const m of [mpMap, ...mpH]) {
+             const e = m?.[playerID];
+             const all = e?.all || e?.ev || null;
+             if (all?.xGoals != null && all?.goals != null)
+               careerGsax += all.xGoals - all.goals;
+             if (all?.toi != null) careerToiSec += all.toi;
+           }
+           const careerPer60 =
+             careerToiSec > 0 ? careerGsax / (careerToiSec / 3600) : null;
+           const curGoalieCells = mpMap[playerID]
+             ? seasonGoalieCells(mpMap[playerID])
+             : null;
+           rebuildHeaderAdvanced(
+             true,
+             {
+               gsax: curGoalieCells?.gsax ?? "…",
+               gsax60: curGoalieCells?.gsax60 ?? "…",
+             },
+             [["gsax", "GSAx"], ["gsax60", "GSAx/60"]],
+             {
+               gsax: careerGsax !== 0 ? fmtSigned(careerGsax, 1) : "—",
+               gsax60:
+                 careerPer60 != null ? fmtSigned(careerPer60, 2) : "—",
+             },
+             [["gsax", "GSAx"], ["gsax60", "GSAx/60"]],
+             `Current Season (${formatSeason(season)})`,
+             "Career (NHL Regular Season)",
+           );
         } catch (err) {
           console.error("Failed to load goalie history:", err);
         }
@@ -998,8 +1158,84 @@ async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks =
           }),
         );
       };
-      render();
-      hooks.seasonsFill?.({ [season]: mpMap[playerID] });
+       render();
+       const advCur = advMap.get(playerID) || {};
+       const advScoring = advCur.scoring || {};
+       const advPct = advCur.pct || {};
+       const mpCur = mpMap[playerID];
+       const sitCur = mpCur?.ev || mpCur?.all || null;
+       const allCur = mpCur?.all || null;
+       const xgfCur = sitCur?.xgPct ?? null;
+       const offCur = sitCur?.offXgPct ?? null;
+       const rxgfCur =
+         xgfCur != null && offCur != null ? (xgfCur - offCur) * 100 : null;
+       const ippCur =
+         sitCur?.pts != null && sitCur?.onIceG >= 1
+           ? sitCur.pts / sitCur.onIceG
+           : null;
+       const oishCur = advScoring.onIceShootingPct5v5 ?? null;
+       const pdoCur =
+         advPct.skaterShootingPlusSavePct5v5 != null
+           ? advPct.skaterShootingPlusSavePct5v5 * 1000
+           : null;
+       const shCur =
+         landing?.featuredStats?.regularSeason?.subSeason?.shootingPctg ??
+         (tablePlayer?.S > 0
+           ? (Number(tablePlayer.G) || 0) / Number(tablePlayer.S)
+           : null);
+       rebuildHeaderAdvanced(
+         false,
+         {
+           shootingPctg: shCur,
+           ixg: allCur?.xg != null ? allCur.xg.toFixed(1) : "…",
+           xgfPctg: xgfCur,
+           rxgf:
+             rxgfCur != null
+               ? `${rxgfCur >= 0 ? "+" : ""}${rxgfCur.toFixed(1)}`
+               : "…",
+           ipp: ippCur != null ? fmtPct(ippCur, 0) : "…",
+           oishPctg: oishCur,
+           pdo: pdoCur != null ? pdoCur.toFixed(0) : "…",
+           avgToi: tablePlayer?.TOI ?? null,
+         },
+         [
+           ["shootingPctg", "SH%"],
+           ["ixg", "IXG"],
+           ["xgfPctg", "XGF%"],
+           ["rxgf", "RXGF%"],
+           ["ipp", "IPP"],
+           ["oishPctg", "OISH%"],
+           ["pdo", "PDO"],
+           ["avgToi", "Avg TOI"],
+         ],
+         {
+           shootingPctg:
+             landing?.careerTotals?.regularSeason?.shootingPctg ??
+             career.shPct ??
+             null,
+           ixg: "…",
+           xgfPctg: "…",
+           rxgf: "…",
+           ipp: "…",
+           oishPctg: "…",
+           pdo: "…",
+           powerPlayPoints:
+             landing?.careerTotals?.regularSeason?.powerPlayPoints ?? "…",
+         },
+         [
+           ["shootingPctg", "SH%"],
+           ["ixg", "IXG"],
+           ["xgfPctg", "XGF%"],
+           ["rxgf", "RXGF%"],
+           ["ipp", "IPP"],
+           ["oishPctg", "OISH%"],
+           ["pdo", "PDO"],
+           ["powerPlayPoints", "PPP"],
+         ],
+         `Current Season (${formatSeason(season)})`,
+         "Career (NHL Regular Season)",
+       );
+       hooks.seasonsFill?.({ [season]: mpMap[playerID] });
       // Per-game xG for Last 5 resolves independently (own small file).
       loadMoneyPuckGameLog(playerID, season).then((g) =>
         hooks.last5Fill?.(g),
@@ -1026,13 +1262,98 @@ async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks =
               playerID,
             ),
           );
-          const combined = { [season]: mpMap[playerID] };
-          played.forEach((s, i) => {
-            combined[s] = mpH[i][playerID];
-          });
-          hooks.seasonsFill?.(combined);
-        } catch (err) {
-          console.error("Failed to load career rates:", err);
+           const combined = { [season]: mpMap[playerID] };
+           played.forEach((s, i) => {
+             combined[s] = mpH[i][playerID];
+           });
+           hooks.seasonsFill?.(combined);
+           // Career advanced aggregates.
+           let careerIxg = 0;
+           let ixgN = 0;
+           let xgfWeighted = 0;
+           let xgfWeight = 0;
+           let rxgfWeighted = 0;
+           let rxgfWeight = 0;
+           const allMaps = [mpMap, ...mpH];
+           for (const m of allMaps) {
+             const e = m?.[playerID];
+             const all = e?.all || null;
+             const ev = e?.ev || null;
+             if (all?.xg != null) {
+               careerIxg += all.xg;
+               ixgN++;
+             }
+             const w = ev?.toi ?? all?.toi ?? 1;
+             if (ev?.xgPct != null) {
+               xgfWeighted += ev.xgPct * w;
+               xgfWeight += w;
+             }
+             if (ev?.xgPct != null && ev?.offXgPct != null) {
+               rxgfWeighted += (ev.xgPct - ev.offXgPct) * 100 * w;
+               rxgfWeight += w;
+             }
+           }
+           const careerXgf =
+             xgfWeight > 0 ? xgfWeighted / xgfWeight : null;
+           const careerRxgf =
+             rxgfWeight > 0 ? rxgfWeighted / rxgfWeight : null;
+           rebuildHeaderAdvanced(
+             false,
+             {
+               shootingPctg: shCur,
+               ixg: allCur?.xg != null ? allCur.xg.toFixed(1) : "…",
+               xgfPctg: xgfCur,
+               rxgf:
+                 rxgfCur != null
+                   ? `${rxgfCur >= 0 ? "+" : ""}${rxgfCur.toFixed(1)}`
+                   : "…",
+               ipp: ippCur != null ? fmtPct(ippCur, 0) : "…",
+               oishPctg: oishCur,
+               pdo: pdoCur != null ? pdoCur.toFixed(0) : "…",
+               avgToi: tablePlayer?.TOI ?? null,
+             },
+             [
+               ["shootingPctg", "SH%"],
+               ["ixg", "IXG"],
+               ["xgfPctg", "XGF%"],
+               ["rxgf", "RXGF%"],
+               ["ipp", "IPP"],
+               ["oishPctg", "OISH%"],
+               ["pdo", "PDO"],
+               ["avgToi", "Avg TOI"],
+             ],
+             {
+               shootingPctg:
+                 landing?.careerTotals?.regularSeason?.shootingPctg ??
+                 career.shPct ??
+                 null,
+               ixg: ixgN > 0 ? careerIxg.toFixed(1) : "—",
+               xgfPctg: careerXgf,
+               rxgf:
+                 careerRxgf != null
+                   ? `${careerRxgf >= 0 ? "+" : ""}${careerRxgf.toFixed(1)}`
+                   : "—",
+               ipp: career.ipp != null ? fmtPct(career.ipp, 0) : "—",
+               oishPctg: career.oish,
+               pdo: career.pdo != null ? career.pdo.toFixed(0) : "—",
+               powerPlayPoints:
+                 landing?.careerTotals?.regularSeason?.powerPlayPoints ?? "—",
+             },
+             [
+               ["shootingPctg", "SH%"],
+               ["ixg", "IXG"],
+               ["xgfPctg", "XGF%"],
+               ["rxgf", "RXGF%"],
+               ["ipp", "IPP"],
+               ["oishPctg", "OISH%"],
+               ["pdo", "PDO"],
+               ["powerPlayPoints", "PPP"],
+             ],
+             `Current Season (${formatSeason(season)})`,
+             "Career (NHL Regular Season)",
+           );
+         } catch (err) {
+           console.error("Failed to load career rates:", err);
         }
       }
     }
@@ -1048,7 +1369,7 @@ async function fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks =
   }
 }
 
-function buildAdvancedSection(playerID, tablePlayer, goalie, hooks = {}) {
+function buildAdvancedSection(playerID, tablePlayer, goalie, hooks = {}, landing = null) {
   const section = document.createElement("div");
   section.className = "player-card-section";
 
@@ -1086,7 +1407,7 @@ function buildAdvancedSection(playerID, tablePlayer, goalie, hooks = {}) {
   table.appendChild(tbody);
   section.appendChild(table);
 
-  fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks);
+  fillAdvancedSection(tbody, playerID, tablePlayer, goalie, hooks, landing);
   return section;
 }
 
@@ -1279,7 +1600,14 @@ export async function populatePlayerCard(card, player, onClose, navList) {
   closeBtn.addEventListener("click", () => onClose());
   main.appendChild(closeBtn);
 
-  main.appendChild(buildHeaderSection(data, player.Tier, player.Age, lineLabels));
+  const goalieFlag = isGoalie(data);
+  const currentSeasonRow = (goalieFlag ? seasonDataGoaler : seasonDataPlayer)[seasons?.[0]]?.find(
+    (p) => p.ID === player.ID,
+  );
+  const currentAvgToi = currentSeasonRow?.TOI ?? null;
+  main.appendChild(
+    buildHeaderSection(data, player.Tier, player.Age, lineLabels, currentAvgToi),
+  );
 
   const playerBody = document.createElement("div");
   playerBody.textContent = "";
@@ -1327,7 +1655,7 @@ export async function populatePlayerCard(card, player, onClose, navList) {
       fillSeasonsAdvCells(seasonsBuilt?.advCells, mpBySeason),
     last5Fill: (mpGameLog) => fillLast5IxG(last5Built?.ixgCells, mpGameLog),
   };
-  const advancedSection = buildAdvancedSection(data.playerId, player, goalie, advHooks);
+  const advancedSection = buildAdvancedSection(data.playerId, player, goalie, advHooks, data);
   if (advancedSection) graphContainer.appendChild(advancedSection);
 
   const slug =
