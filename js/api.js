@@ -713,7 +713,20 @@ async function loadClubSchedule(team) {
       MEDIUM_TTL,
     );
   } catch (err) {
-    console.error("Failed to load club schedule:", err);
+    console.error("Failed to load club schedule:", team, err);
+    return null;
+  }
+}
+
+async function loadDepthCharts() {
+  try {
+    return await fetchWithCache(
+      "/nbihockey/data/depth-charts.json",
+      CACHE_KEY + "_depth_charts",
+      SHORT_TTL,
+    );
+  } catch (err) {
+    console.error("Failed to load depth charts:", err);
     return null;
   }
 }
@@ -743,6 +756,7 @@ export {
   loadMoneyPuckGoalies,
   loadMoneyPuckGameLog,
   loadEdgeGoalieDetail,
+  loadDepthCharts,
   removeCacheKeys,
   TEAM_SLUGS,
 };

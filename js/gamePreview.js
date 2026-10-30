@@ -9,7 +9,7 @@ import {
   loadPlayerLanding,
   loadMoneyPuckSkaters,
   loadMoneyPuckGoalies,
-  TEAM_SLUGS,
+  loadDepthCharts,
 } from "./api.js";
 import { openPlayerCard } from "./playerCard.js";
 import {
@@ -92,6 +92,28 @@ function teamName(team) {
   const place = team.placeName?.default || "";
   const common = team.commonName?.default || "";
   return `${place} ${common}`.trim() || team.abbrev;
+}
+
+function normalizeName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function projectedGoalieFromDepth(depthCharts, team, goalieList) {
+  if (!depthCharts?.teams) return null;
+  const teamDepth = depthCharts.teams.find((t) => t.abbreviation === team.abbrev);
+  const starterName = teamDepth?.goalies?.starter?.name;
+  if (!starterName) return null;
+  const starterLast = normalizeName(starterName).split(/\s+/).pop();
+  return (
+    (goalieList || []).find((g) => {
+      const name = normalizeName(g?.name?.default || g?.name || "");
+      return name.split(/\s+/).pop() === starterLast;
+    }) || null
+  );
 }
 
 function section(title, note) {
@@ -569,7 +591,7 @@ function buildEdges(away, home, awayAbbrev, homeAbbrev, awayGoalie, homeGoalie) 
           : "home",
   });
 
-  if (awayGoalie && homeGoalie) {
+  if (awayGoalie && homeGoalie && awayGoalie.savePctg != null && homeGoalie.savePctg != null) {
     edges.push({
       label: "Projected goalies (SV%)",
       away: `${awayGoalie.name.default} ${pct(awayGoalie.savePctg)}`,
@@ -625,7 +647,7 @@ function renderEdges(edges, awayAbbrev, homeAbbrev) {
 
 // --- Goalies --------------------------------------------------------------
 
-function goalieCard(goalie, team, tag) {
+function goalieCard(goalie, team, tag, gameDate) {
   const card = el("div", "card goalie-card");
   card.appendChild(el("div", "goalie-tag", tag));
 
@@ -668,14 +690,12 @@ function goalieCard(goalie, team, tag) {
     card.appendChild(stats);
   }
 
-  const slug = TEAM_SLUGS[team.abbrev];
-  if (slug) {
-    const link = el("a", "goalie-link", "Confirm starter on Daily Faceoff →");
-    link.href = `https://www.dailyfaceoff.com/teams/${slug}/line-combinations/`;
-    link.target = "_blank";
-    link.rel = "noopener";
-    card.appendChild(link);
-  }
+  const date = gameDate || new Date().toISOString().slice(0, 10);
+  const link = el("a", "goalie-link", "Confirm starter on Daily Faceoff →");
+  link.href = `https://www.dailyfaceoff.com/starting-goalies/${date}`;
+  link.target = "_blank";
+  link.rel = "noopener";
+  card.appendChild(link);
   return card;
 }
 
@@ -1356,20 +1376,58 @@ async function main() {
   root.innerHTML = "";
   root.appendChild(renderHeader(landing, awayRecord, homeRecord));
 
-  const [teamSummary, awaySchedule, standings, powerplay, penaltykill] =
+  const [teamSummary, awaySchedule, standings, powerplay, penaltykill, depthCharts] =
     await Promise.all([
       loadTeamSummary(landing.season),
       loadClubSchedule(away.abbrev),
       loadStandings(),
       loadTeamPowerPlay(landing.season),
       loadTeamPenaltyKill(landing.season),
+      loadDepthCharts(),
     ]);
 
   const awaySummary = teamSummary.find((t) => t.teamId === away.id);
   const homeSummary = teamSummary.find((t) => t.teamId === home.id);
 
-  const awayGoalie = matchup.goalieComparison?.awayTeam?.leaders?.[0];
-  const homeGoalie = matchup.goalieComparison?.homeTeam?.leaders?.[0];
+  const awayGoalieList = (matchup.goalieSeasonStats?.goalies || []).filter(
+    (g) => g.teamId === away.id,
+  );
+  const homeGoalieList = (matchup.goalieSeasonStats?.goalies || []).filter(
+    (g) => g.teamId === home.id,
+  );
+  const awayLeaders = matchup.goalieComparison?.awayTeam?.leaders || [];
+  const homeLeaders = matchup.goalieComparison?.homeTeam?.leaders || [];
+  let awayGoalie =
+    projectedGoalieFromDepth(depthCharts, away, awayGoalieList) ||
+    awayLeaders[0];
+  let homeGoalie =
+    projectedGoalieFromDepth(depthCharts, home, homeGoalieList) ||
+    homeLeaders[0];
+  const fallbackGoalie = (team) => {
+    const teamDepth = depthCharts?.teams?.find(
+      (t) => t.abbreviation === team.abbrev,
+    );
+    const starterName = teamDepth?.goalies?.starter?.name;
+    return starterName ? { name: { default: starterName } } : null;
+  };
+  if (!awayGoalie) awayGoalie = fallbackGoalie(away);
+  if (!homeGoalie) homeGoalie = fallbackGoalie(home);
+  const mergeGoalie = (goalie, leaders) => {
+    if (!goalie) return goalie;
+    if (!goalie.headshot) {
+      const last = normalizeName(goalie.name?.default).split(/\s+/).pop();
+      const match = (leaders || []).find((l) => {
+        const n = normalizeName(l?.name?.default);
+        return n.split(/\s+/).pop() === last;
+      });
+      if (match?.headshot) goalie.headshot = match.headshot;
+      if (goalie.savePctg == null && match?.savePctg != null)
+        goalie.savePctg = match.savePctg;
+    }
+    return goalie;
+  };
+  awayGoalie = mergeGoalie(awayGoalie, awayLeaders);
+  homeGoalie = mergeGoalie(homeGoalie, homeLeaders);
 
   if (awaySummary && homeSummary) {
     const context = buildComparisonContext({
@@ -1412,12 +1470,12 @@ async function main() {
   if (awayGoalie || homeGoalie) {
     const goalieWrap = section("Projected starters", "verify before puck drop");
     const goalieGrid = el("div", "preview-grid");
-    goalieGrid.appendChild(
-      goalieCard(awayGoalie, away, `${away.abbrev} — starter`),
-    );
-    goalieGrid.appendChild(
-      goalieCard(homeGoalie, home, `${home.abbrev} — starter`),
-    );
+  goalieGrid.appendChild(
+    goalieCard(awayGoalie, away, `${away.abbrev} — starter`, landing.gameDate),
+  );
+  goalieGrid.appendChild(
+    goalieCard(homeGoalie, home, `${home.abbrev} — starter`, landing.gameDate),
+  );
     goalieWrap.appendChild(goalieGrid);
     root.appendChild(goalieWrap);
   }

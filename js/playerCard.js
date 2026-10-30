@@ -13,6 +13,7 @@ import {
   loadMoneyPuckGoalies,
   loadMoneyPuckGameLog,
   loadEdgeGoalieDetail,
+  loadDepthCharts,
 } from "./api.js";
 import {
   skaterLuckRows,
@@ -35,7 +36,50 @@ function isGoalie(data) {
   return data.position === "G";
 }
 
-function buildHeaderSection(data, tier, age) {
+function normalizeName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function depthLabelsForPlayer(depthCharts, teamAbbrev, fullName) {
+  if (!depthCharts?.teams) return [];
+  const team = depthCharts.teams.find((t) => t.abbreviation === teamAbbrev);
+  if (!team) return [];
+  const target = normalizeName(fullName);
+  const labels = [];
+  if (team.forwards?.length || team.defense?.length) {
+    for (const line of team.forwards || []) {
+      const names = [line.lw?.name, line.c?.name, line.rw?.name].filter(Boolean);
+      if (names.some((n) => normalizeName(n) === target))
+        labels.push(`L${line.line}`);
+    }
+    for (const pair of team.defense || []) {
+      const names = [pair.ld?.name, pair.rd?.name].filter(Boolean);
+      if (names.some((n) => normalizeName(n) === target))
+        labels.push(`D${pair.pair}`);
+    }
+    for (const unit of team.powerPlay || []) {
+      if ((unit.players || []).some((p) => normalizeName(p.name) === target))
+        labels.push(`PP${unit.unit}`);
+    }
+    for (const unit of team.penaltyKill || []) {
+      if ((unit.players || []).some((p) => normalizeName(p.name) === target))
+        labels.push(`PK${unit.unit}`);
+    }
+  }
+  // Goalie depth
+  const starter = normalizeName(team.goalies?.starter?.name);
+  const backup = normalizeName(team.goalies?.backup?.name);
+  if (target && target === starter) labels.push("G1");
+  else if (target && target === backup) labels.push("G2");
+  // De-duplicate while preserving order.
+  return [...new Set(labels)];
+}
+
+function buildHeaderSection(data, tier, age, lineLabels = []) {
   const header = document.createElement("div");
   header.className = "player-card-header";
 
@@ -54,8 +98,12 @@ function buildHeaderSection(data, tier, age) {
   teamLogo.src = data.teamLogo;
   teamLogo.className = "inline-icon";
   teamLine.appendChild(teamLogo);
+  const depthSuffix =
+    Array.isArray(lineLabels) && lineLabels.length
+      ? " · " + lineLabels.join(" · ")
+      : "";
   teamLine.appendChild(
-    document.createTextNode(`#${data.sweaterNumber} · ${data.position}`),
+    document.createTextNode(`#${data.sweaterNumber} · ${data.position}${depthSuffix}`),
   );
 
   const nameLine = document.createElement("div");
@@ -1176,11 +1224,20 @@ export async function populatePlayerCard(card, player, onClose, navList) {
 
   await ensureCardContext();
 
-  const data = await loadPlayerLanding(player.ID);
+  const [data, depthCharts] = await Promise.all([
+    loadPlayerLanding(player.ID),
+    loadDepthCharts(),
+  ]);
   if (!data) {
     loading.textContent = "Failed to load player data.";
     return;
   }
+  const fullName = `${data.firstName?.default || ""} ${data.lastName?.default || ""}`.trim();
+  const lineLabels = depthLabelsForPlayer(
+    depthCharts,
+    data.currentTeamAbbrev,
+    fullName,
+  );
 
   card.textContent = "";
 
@@ -1222,7 +1279,7 @@ export async function populatePlayerCard(card, player, onClose, navList) {
   closeBtn.addEventListener("click", () => onClose());
   main.appendChild(closeBtn);
 
-  main.appendChild(buildHeaderSection(data, player.Tier, player.Age));
+  main.appendChild(buildHeaderSection(data, player.Tier, player.Age, lineLabels));
 
   const playerBody = document.createElement("div");
   playerBody.textContent = "";

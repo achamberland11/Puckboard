@@ -84,6 +84,21 @@ class ProxyHandler(SimpleHTTPRequestHandler):
                 self.send_response(502)
                 self.end_headers()
                 self.wfile.write(str(e).encode())
+        elif self.path.startswith("/nbihockey/"):
+            target = "https://nbihockey.com" + self.path[len("/nbihockey"):]
+            try:
+                req = urllib.request.Request(target, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req) as resp:
+                    data = resp.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(data)
+            except Exception as e:
+                self.send_response(502)
+                self.end_headers()
+                self.wfile.write(str(e).encode())
         else:
             super().do_GET()
 
