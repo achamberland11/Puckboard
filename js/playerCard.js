@@ -35,7 +35,7 @@ function isGoalie(data) {
   return data.position === "G";
 }
 
-function buildHeaderSection(data, tier) {
+function buildHeaderSection(data, tier, age) {
   const header = document.createElement("div");
   header.className = "player-card-header";
 
@@ -77,8 +77,9 @@ function buildHeaderSection(data, tier) {
 
   const heightFt = Math.floor(data.heightInInches / 12);
   const heightIn = data.heightInInches % 12;
+  const ageLine = age != null && age !== "" ? `Age ${age}` : "";
   const lines = [
-    `${heightFt}'${heightIn}" · ${data.weightInPounds} lbs · Shoots ${data.shootsCatches}`,
+    `${heightFt}'${heightIn}" · ${data.weightInPounds} lbs · Shoots ${data.shootsCatches}${ageLine ? " · " + ageLine : ""}`,
     `Born ${data.birthDate} · ${data.birthCity?.default || ""}${data.birthStateProvince ? ", " + data.birthStateProvince.default : ""}, ${data.birthCountry}`,
   ];
   if (data.draftDetails) {
@@ -496,13 +497,22 @@ function buildGraphSection(playerID, seasons, seasonData, goalie) {
     option.textContent = formatSeason(s);
     seasonSelect.appendChild(option);
   });
-  const modeBtn = document.createElement("button");
-  modeBtn.className = "button";
-  modeBtn.type = "button";
-  modeBtn.textContent = "Cumulative";
-  modeBtn.hidden = true;
-  modeBtn.title = "Switch between cumulative totals and per-game values.";
-  header.appendChild(modeBtn);
+  const modeSelect = document.createElement("select");
+  modeSelect.className = "selector";
+  modeSelect.hidden = true;
+  modeSelect.title = "Select view mode.";
+  [
+    { value: "cumulative", text: "Cumulative" },
+    { value: "pergame", text: "Per game" },
+    { value: "perweek", text: "Per week" },
+    { value: "permonth", text: "Per month" },
+  ].forEach((opt) => {
+    const o = document.createElement("option");
+    o.value = opt.value;
+    o.textContent = opt.text;
+    modeSelect.appendChild(o);
+  });
+  header.appendChild(modeSelect);
   header.appendChild(seasonSelect);
   section.appendChild(header);
 
@@ -571,31 +581,197 @@ function buildGraphSection(playerID, seasons, seasonData, goalie) {
     replaceChart({ labels, datasets });
   }
 
+  function aggregateByWeek(games, stat, goalie) {
+    const groups = new Map();
+    for (let i = 0; i < games.length; i++) {
+      const g = games[i];
+      const dateStr = g.gameDate;
+      if (!dateStr) continue;
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) continue;
+      const day = d.getDay();
+      const diff = (day === 0 ? -6 : 1) - day;
+      const monday = new Date(d);
+      monday.setHours(0, 0, 0, 0);
+      monday.setDate(d.getDate() + diff);
+      const key = monday.toISOString().slice(0, 10);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(g);
+    }
+    const entries = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    return entries.map(([, group]) => {
+      if (goalie) {
+        if (stat === "W") {
+          let wins = 0;
+          for (const game of group) if (game.decision === "W") wins += 1;
+          return wins;
+        }
+        if (stat === "GAA") {
+          let ga = 0;
+          for (const game of group) ga += game.goalsAgainst || 0;
+          return group.length ? ga / group.length : null;
+        }
+        if (stat === "SV%") {
+          let ga = 0;
+          let sa = 0;
+          for (const game of group) {
+            ga += game.goalsAgainst || 0;
+            sa += game.shotsAgainst || 0;
+          }
+          return sa > 0 ? ((sa - ga) / sa) * 100 : null;
+        }
+        return null;
+      }
+      let sum = 0;
+      for (const game of group) sum += game[GAME_KEYS[stat]] || 0;
+      return sum / group.length;
+    });
+  }
+
+  function aggregateByMonth(games, stat, goalie) {
+    const groups = new Map();
+    for (let i = 0; i < games.length; i++) {
+      const g = games[i];
+      const dateStr = g.gameDate;
+      if (!dateStr) continue;
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) continue;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(g);
+    }
+    const entries = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    return entries.map(([, group]) => {
+      if (goalie) {
+        if (stat === "W") {
+          let wins = 0;
+          for (const game of group) if (game.decision === "W") wins += 1;
+          return wins;
+        }
+        if (stat === "GAA") {
+          let ga = 0;
+          for (const game of group) ga += game.goalsAgainst || 0;
+          return group.length ? ga / group.length : null;
+        }
+        if (stat === "SV%") {
+          let ga = 0;
+          let sa = 0;
+          for (const game of group) {
+            ga += game.goalsAgainst || 0;
+            sa += game.shotsAgainst || 0;
+          }
+          return sa > 0 ? ((sa - ga) / sa) * 100 : null;
+        }
+        return null;
+      }
+      let sum = 0;
+      for (const game of group) sum += game[GAME_KEYS[stat]] || 0;
+      return sum / group.length;
+    });
+  }
+
   function seasonDatasets(games, mode) {
     const stats = goalie ? ["W", "GAA", "SV%"] : ["G", "A", "P", "PPP", "+/-"];
 
     return stats.map((stat) => {
       const color = colorMap[stat] || "#000000";
-      const cumulative = mode === "cumulative";
-      return cumulative
-        ? {
-            label: stat,
-            data: cumulativeGameValue(games, stat, goalie),
-            borderColor: color,
-            tension: 0,
-            fill: false,
-          }
-        : {
-            label: `${stat} (game)`,
-            data: games.map((g) => rawGameValue(g, stat, goalie)),
-            borderColor: color,
-            borderDash: [4, 4],
-            borderWidth: 1.5,
-            pointRadius: 0,
-            tension: 0,
-            fill: false,
-          };
+      if (mode === "cumulative") {
+        return {
+          label: stat,
+          data: cumulativeGameValue(games, stat, goalie),
+          borderColor: color,
+          tension: 0,
+          fill: false,
+        };
+      }
+      if (mode === "pergame") {
+        return {
+          label: `${stat} (game)`,
+          data: games.map((g) => rawGameValue(g, stat, goalie)),
+          borderColor: color,
+          borderDash: [4, 4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0,
+          fill: false,
+        };
+      }
+      if (mode === "perweek") {
+        return {
+          label: `${stat} (week avg)`,
+          data: aggregateByWeek(games, stat, goalie),
+          borderColor: color,
+          borderDash: [2, 2],
+          borderWidth: 1.5,
+          pointRadius: 2,
+          tension: 0,
+          fill: false,
+        };
+      }
+      if (mode === "permonth") {
+        return {
+          label: `${stat} (month avg)`,
+          data: aggregateByMonth(games, stat, goalie),
+          borderColor: color,
+          borderDash: [2, 2],
+          borderWidth: 1.5,
+          pointRadius: 2,
+          tension: 0,
+          fill: false,
+        };
+      }
+      return {
+        label: stat,
+        data: cumulativeGameValue(games, stat, goalie),
+        borderColor: color,
+        tension: 0,
+        fill: false,
+      };
     });
+  }
+
+  function getSeasonLabels(games, mode) {
+    if (mode === "cumulative" || mode === "pergame") {
+      return games.map((_, i) => i + 1);
+    }
+    if (mode === "perweek") {
+      const groups = new Map();
+      for (let i = 0; i < games.length; i++) {
+        const g = games[i];
+        const dateStr = g.gameDate;
+        if (!dateStr) continue;
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) continue;
+        const day = d.getDay();
+        const diff = (day === 0 ? -6 : 1) - day;
+        const monday = new Date(d);
+        monday.setHours(0, 0, 0, 0);
+        monday.setDate(d.getDate() + diff);
+        const key = monday.toISOString().slice(0, 10);
+        if (!groups.has(key)) groups.set(key, monday);
+      }
+      const entries = [...groups.entries()].sort((a, b) => a[1] - b[1]);
+      return entries.map(([, monday]) =>
+        monday.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+      );
+    }
+    if (mode === "permonth") {
+      const groups = new Map();
+      for (let i = 0; i < games.length; i++) {
+        const g = games[i];
+        const dateStr = g.gameDate;
+        if (!dateStr) continue;
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) continue;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        if (!groups.has(key)) groups.set(key, new Date(d.getFullYear(), d.getMonth(), 1));
+      }
+      const entries = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+      return entries.map(([, first]) =>
+        first.toLocaleDateString(undefined, { month: "short", year: "2-digit" }),
+      );
+    }
+    return games.map((_, i) => i + 1);
   }
 
   async function renderSeasonChart(season) {
@@ -608,7 +784,7 @@ function buildGraphSection(playerID, seasons, seasonData, goalie) {
       seasonGames = [...gameLog.gameLog].reverse();
     }
 
-    const labels = seasonGames.map((_, i) => i + 1);
+    const labels = getSeasonLabels(seasonGames, seasonView);
     const datasets = seasonDatasets(seasonGames, seasonView);
     replaceChart({ labels, datasets });
   }
@@ -617,21 +793,22 @@ function buildGraphSection(playerID, seasons, seasonData, goalie) {
 
   seasonSelect.addEventListener("change", () => {
     if (seasonSelect.value === "") {
-      modeBtn.hidden = true;
+      modeSelect.hidden = true;
       renderCareerChart();
     } else {
-      modeBtn.hidden = false;
-      seasonView = "cumulative";
-      modeBtn.textContent = "Cumulative";
+      modeSelect.hidden = false;
+      seasonView = modeSelect.value || "cumulative";
+      seasonGames = null;
       replaceChart({ labels: [], datasets: [] }, "Loading...");
       renderSeasonChart(seasonSelect.value);
     }
   });
 
-  modeBtn.addEventListener("click", () => {
-    if (!seasonGames) return;
-    seasonView = seasonView === "cumulative" ? "pergame" : "cumulative";
-    modeBtn.textContent = seasonView === "cumulative" ? "Cumulative" : "Per game";
+  modeSelect.addEventListener("change", () => {
+    if (seasonSelect.value === "") return;
+    seasonView = modeSelect.value;
+    seasonGames = null;
+    replaceChart({ labels: [], datasets: [] }, "Loading...");
     renderSeasonChart(seasonSelect.value);
   });
 
@@ -1045,7 +1222,7 @@ export async function populatePlayerCard(card, player, onClose, navList) {
   closeBtn.addEventListener("click", () => onClose());
   main.appendChild(closeBtn);
 
-  main.appendChild(buildHeaderSection(data, player.Tier));
+  main.appendChild(buildHeaderSection(data, player.Tier, player.Age));
 
   const playerBody = document.createElement("div");
   playerBody.textContent = "";

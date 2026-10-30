@@ -177,6 +177,14 @@
   .side-text {
     display: none;
   }
+
+  .player-card-body {
+    flex-direction: column;
+  }
+
+  .player-card-body .player-section-container {
+    flex: 1 1 auto;
+  }
 }
 
 .player-card-close {
@@ -234,6 +242,7 @@
 
 .player-card-body {
   display: flex;
+  flex-wrap: wrap;
   padding: 1rem 1.5rem;
 }
 
@@ -274,7 +283,8 @@
 }
 
 .player-card-body .player-section-container {
-  max-width: 50%;
+  flex: 1 1 400px;
+  max-width: 100%;
 }
 
 .player-card-stats-grid {

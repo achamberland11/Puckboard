@@ -48,13 +48,14 @@ option {
   border: 1px solid var(--glass-border-hover);
   border-radius: var(--border-radius-sm);
   padding: 0.5rem 0.75rem;
-  font-size: 0.9rem;
+  font-size: 0.75vw;
   font-family: var(--font-family);
   cursor: pointer;
   backdrop-filter: blur(var(--glass-blur-sm));
   transition:
     background 0.2s,
     border-color 0.2s;
+  white-space: nowrap;
 }
 
 .selector:checked,
@@ -102,7 +103,7 @@ option {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.85rem;
+  font-size: 0.75vw;
   color: var(--color-text-secondary);
   cursor: pointer;
   user-select: none;
@@ -191,6 +192,19 @@ option {
 .weight-input input:focus {
   outline: none;
   border-color: var(--color-accent);
+}
+
+@media (max-width: 700px) {
+  .selector,
+  .button,
+  option {
+    font-size: 0.5rem;
+    padding: 0.3rem 0.4rem;
+  }
+
+  .toggle-label {
+    font-size: 0.5rem;
+  }
 }
 
 /* Global thin dark scrollbars (Firefox baseline + Chromium/Safari polish). */
