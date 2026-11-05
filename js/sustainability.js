@@ -194,36 +194,43 @@ function rowShell(key, label, extra = {}) {
   };
 }
 
-// Season-table advanced cells from a per-season MoneyPuck index entry.
-// ixG is all-situations (matches the G column); xGF%/REL are 5v5 standard.
-export function seasonAdvCells(mpEntry) {
+// Season-table advanced values from a per-season MoneyPuck index entry.
+// ixG is all-situations (matches the G column); RXGF% is 5v5 relative xG share.
+export function seasonAdvValues(mpEntry) {
   const all = mpEntry?.all || null;
   const ev = mpEntry?.ev || null;
-  const ixg = all?.xg ?? null;
-  const xgf = ev?.xgPct ?? null;
+  const ixG = all?.xg ?? null;
+  const xGF = ev?.xgPct ?? null;
   const off = ev?.offXgPct ?? null;
-  const rel = xgf != null && off != null ? xgf - off : null;
+  const RXGF = xGF != null && off != null ? (xGF - off) * 100 : null;
+  return { ixG, xGF, RXGF };
+}
+
+export function seasonAdvCells(mpEntry) {
+  const { ixG, xGF, RXGF } = seasonAdvValues(mpEntry);
   return {
-    ixg: ixg != null ? ixg.toFixed(1) : "—",
-    xgf: xgf != null ? fmtPct(xgf) : "—",
-    rel:
-      rel != null
-        ? `${rel >= 0 ? "+" : ""}${(rel * 100).toFixed(1)}`
-        : "—",
+    ixg: ixG != null ? ixG.toFixed(1) : "—",
+    xgf: xGF != null ? fmtPct(xGF) : "—",
+    rel: RXGF != null ? `${RXGF >= 0 ? "+" : ""}${RXGF.toFixed(1)}` : "—",
   };
 }
 
-// Goalie season-table cells from a per-season MoneyPuck index entry.
+// Goalie season-table values from a per-season MoneyPuck index entry.
 // All-situations (matches the W/GAA columns): GSAx and GSAx per 60.
-export function seasonGoalieCells(mpEntry) {
+export function seasonGoalieValues(mpEntry) {
   const all = mpEntry?.all || mpEntry?.ev || null;
-  const gsax =
+  const GSAx =
     all?.xGoals != null && all?.goals != null ? all.xGoals - all.goals : null;
   const toiH = all?.toi != null && all.toi > 0 ? all.toi / 3600 : null;
-  const per60 = gsax != null && toiH != null ? gsax / toiH : null;
+  const GSAx60 = GSAx != null && toiH != null ? GSAx / toiH : null;
+  return { GSAx, GSAx60 };
+}
+
+export function seasonGoalieCells(mpEntry) {
+  const { GSAx, GSAx60 } = seasonGoalieValues(mpEntry);
   return {
-    gsax: gsax != null ? fmtSigned(gsax, 1) : "—",
-    gsax60: per60 != null ? fmtSigned(per60, 2) : "—",
+    gsax: GSAx != null ? fmtSigned(GSAx, 1) : "—",
+    gsax60: GSAx60 != null ? fmtSigned(GSAx60, 2) : "—",
   };
 }
 
