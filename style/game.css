@@ -156,11 +156,40 @@
   padding: 1rem 1.25rem;
 }
 
+.goalie-tag-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .goalie-tag {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-accent);
+}
+
+.goalie-status {
+  white-space: nowrap;
+  background: var(--color-card-stat-bg);
+  color: var(--color-text-muted);
+}
+
+.goalie-status.confirmed {
+  background: #1f7a3d;
+  color: #fff;
+}
+
+.goalie-status.likely {
+  background: #b45309;
+  color: #fff;
+}
+
+.goalie-status.unconfirmed {
+  background: var(--color-card-stat-bg);
+  color: var(--color-text-muted);
 }
 
 .goalie-top {

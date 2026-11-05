@@ -14,6 +14,8 @@ export const FIELD_INFO = {
   BLK: "Blocked shots.",
   HITS: "Hits.",
   SA: "Shots against: number of shots faced by the goaltender.",
+  GA: "Goals against: total goals allowed by the goaltender.",
+  SV: "Saves: shots faced minus goals against.",
   Age: "Age at the start of the season (October 1st).",
   RVI: "Relative Value Index: weighted pace z-score composite over the displayed categories projected to 82 games, computed against the player's position group (Forward / Defence), plus an age-curve bonus peaking at prime age. Higher is better.",
   GVI: "General Value Index: weighted pace z-score composite over the displayed categories projected to 82 games against the league pool (W, SV%, GAA for goalies), plus an age-curve bonus peaking at prime age (24 skaters, 25 goalies). Weighted by the values set in the Weights panel. Higher is better.",

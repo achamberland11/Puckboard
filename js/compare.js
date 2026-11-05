@@ -1,7 +1,16 @@
 import { computeRadarZScores, TIER_RANK } from "./stats.js";
 import { LEAGUE_CONFIG } from "./config.js";
-import { loadPlayerLanding } from "./api.js";
+import {
+  loadMoneyPuckGoalies,
+  loadMoneyPuckSkaters,
+  loadPlayerLanding,
+} from "./api.js";
 import { populatePlayerCard } from "./playerCard.js";
+import { seasonAdvValues, seasonGoalieValues } from "./sustainability.js";
+import {
+  getVisibleComparisonRadarStats,
+  getVisibleComparisonStats,
+} from "./table.js";
 import { FIELD_INFO, SECTION_INFO } from "./fields.js";
 
 const PLAYER_COLORS = [
@@ -11,6 +20,16 @@ const PLAYER_COLORS = [
   "#f39c12",
   "#9b59b6",
 ];
+
+const SKATER_ADVANCED_STATS = ["ixG", "RXGF%"];
+const GOALIE_ADVANCED_STATS = ["GSAx"];
+const ADVANCED_STORAGE_KEY = "nhl_compare_advanced_cols";
+const DEFAULT_ADVANCED_VISIBILITY = {
+  ixG: true,
+  "RXGF%": true,
+  GSAx: true,
+};
+const LOWER_BETTER = new Set(["GAA", "GA", "rankGAA", "rankP"]);
 
 function formatSeason(yyyyyyyy) {
   const s = String(yyyyyyyy);
@@ -25,7 +44,59 @@ function nameOf(p) {
   return p.Joueurs || p.Gardiens || "?";
 }
 
-function buildTableSection(players, title, tip = "") {
+function loadAdvancedVisibility() {
+  try {
+    const stored = JSON.parse(
+      localStorage.getItem(ADVANCED_STORAGE_KEY) || "null",
+    );
+    if (stored && typeof stored === "object" && !Array.isArray(stored)) {
+      return { ...DEFAULT_ADVANCED_VISIBILITY, ...stored };
+    }
+  } catch (err) {
+    console.error("Failed to load comparison advanced columns:", err);
+  }
+  return { ...DEFAULT_ADVANCED_VISIBILITY };
+}
+
+function saveAdvancedVisibility(visibility) {
+  try {
+    localStorage.setItem(ADVANCED_STORAGE_KEY, JSON.stringify(visibility));
+  } catch (err) {
+    console.error("Failed to save comparison advanced columns:", err);
+  }
+}
+
+function formatAdvanced(key, value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "–";
+  if (key === "ixG") return n.toFixed(1);
+  return `${n >= 0 ? "+" : ""}${n.toFixed(1)}`;
+}
+
+function enrichPool(pool, mp, goalie) {
+  const byId = new Map();
+  const enriched = pool.map((player) => {
+    const copy = { ...player };
+    if (goalie) {
+      const { GSAx } = seasonGoalieValues(mp?.[player.ID]);
+      if (GSAx != null) copy.GSAx = GSAx;
+    } else {
+      const { ixG, RXGF } = seasonAdvValues(mp?.[player.ID]);
+      if (ixG != null) copy.ixG = ixG;
+      if (RXGF != null) copy["RXGF%"] = RXGF;
+    }
+    byId.set(player.ID, copy);
+    return copy;
+  });
+  return { enriched, byId };
+}
+
+function buildTableSection(players, title, tip = "", options = {}) {
+  const {
+    advancedVisibility = DEFAULT_ADVANCED_VISIBILITY,
+    advancedLoading = false,
+  } = options;
+
   const section = document.createElement("div");
   section.className = "compare-section";
 
@@ -36,18 +107,28 @@ function buildTableSection(players, title, tip = "") {
   section.appendChild(titleEl);
 
   const goalie = isGoalieRow(players[0]);
+  const optionalRows = getVisibleComparisonStats(goalie);
+  const advancedRows = (
+    goalie ? GOALIE_ADVANCED_STATS : SKATER_ADVANCED_STATS
+  ).filter((key) => advancedVisibility[key] !== false);
+
   const rows = goalie
     ? [
-        ["Tier"], ["GP"], ["W"], ["SV%"], ["GAA"], ["Age"], ["GVI"], ["AGVI"],
-        ["Trend"], ["Stab"], ["Z", "RotoVal"], ["Z82", "RotoVal-Pace"],
-        ["Rank", "rankGAA"],
+        ["Tier"], ["GP"], ["W"],
+        ...optionalRows.map((key) => [key]),
+        ...advancedRows.map((key) => [key]),
+        ["Age"], ["GVI"], ["AGVI"], ["Trend"], ["Stab"],
+        ["Z", "RotoVal"], ["Z82", "RotoVal-Pace"], ["Rank", "rankGAA"],
       ]
     : [
-        ["Tier"], ["GP"], ["G"], ["A"], ["P"], ["PPP"], ["+/-"], ["TOI"], ["Age"],
-        ["GVI"], ["RVI"], ["AGVI"], ["Trend"], ["Stab"],
+        ["Tier"], ["GP"], ["G"], ["A"], ["P"],
+        ...optionalRows.map((key) => [key]),
+        ...advancedRows.map((key) => [key]),
+        ["Age"], ["GVI"], ["RVI"], ["AGVI"], ["Trend"], ["Stab"],
         ["Z", "RotoVal"], ["ZP", "RotoVal-Pos"],
         ["ZPX", "RotoVal-PosExact"], ["Z82", "RotoVal-Pace"], ["Rank", "rankP"],
       ];
+  const advancedKeySet = new Set(advancedRows);
 
   const table = document.createElement("table");
   table.className = "compare-table";
@@ -86,7 +167,8 @@ function buildTableSection(players, title, tip = "") {
         const r = TIER_RANK.get(raw);
         return r == null ? null : r;
       }
-      return Number(raw);
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
     });
 
     vals.forEach((v, i) => {
@@ -96,8 +178,7 @@ function buildTableSection(players, title, tip = "") {
         bestVal = v;
         return;
       }
-      // Tier ranks ascending (S+ = 0 is best); GAA lower is better; rest higher is better.
-      const lowerBetter = key === "GAA" || isTierRow;
+      const lowerBetter = LOWER_BETTER.has(key) || isTierRow;
       if (lowerBetter ? v < bestVal : v > bestVal) {
         bestIdx = i;
         bestVal = v;
@@ -107,11 +188,14 @@ function buildTableSection(players, title, tip = "") {
     vals.forEach((raw, i) => {
       const td = document.createElement("td");
       const player = players[i];
-      let val = player[key];
-      if (val == null) {
-        td.textContent = "–";
+      const val = player[key];
+      if (val == null || val === "") {
+        td.textContent =
+          advancedLoading && advancedKeySet.has(key) ? "…" : "–";
       } else if (key === "rankGAA" || key === "rankP") {
         td.textContent = `${val}/${player.poolSize}`;
+      } else if (advancedKeySet.has(key)) {
+        td.textContent = formatAdvanced(key, val);
       } else {
         td.textContent = val;
       }
@@ -125,10 +209,9 @@ function buildTableSection(players, title, tip = "") {
   return section;
 }
 
-function buildChartContainer(players, leaguePool, mode, skaterCats, goalieCats) {
+function buildChartContainer(players, leaguePool, mode, cats) {
   const goalie = isGoalieRow(players[0]);
-  const cats = goalie ? goalieCats : skaterCats;
-  const inverted = cats.map((c) => c === "GAA");
+  const inverted = cats.map((c) => c === "GAA" || c === "GA");
   const minGP = goalie ? LEAGUE_CONFIG.goalieMinGP : LEAGUE_CONFIG.minGP;
   const zScores = computeRadarZScores(
     players,
@@ -155,6 +238,7 @@ function buildChartContainer(players, leaguePool, mode, skaterCats, goalieCats) 
     }));
 
   requestAnimationFrame(() => {
+    if (!canvas.isConnected) return;
     const chart = new window.Chart(canvas, {
       type: "radar",
       data: { labels: cats, datasets },
@@ -262,13 +346,66 @@ function buildPlayerList(players, onOpenCard, onRemove) {
   return list;
 }
 
+function buildAdvancedControls(goalie, visibility, onChange) {
+  const row = document.createElement("div");
+  row.className = "compare-advanced-controls";
+
+  const label = document.createElement("span");
+  label.className = "compare-advanced-label";
+  label.textContent = "Advanced";
+  row.appendChild(label);
+
+  const stats = goalie ? GOALIE_ADVANCED_STATS : SKATER_ADVANCED_STATS;
+  for (const key of stats) {
+    const chip = document.createElement("label");
+    chip.className = "toggle-label";
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = visibility[key] !== false;
+    input.title = FIELD_INFO[key] || "";
+    input.dataset.key = key;
+    input.addEventListener("change", () => {
+      visibility[key] = input.checked;
+      onChange();
+    });
+
+    const span = document.createElement("span");
+    span.textContent = key;
+
+    chip.appendChild(input);
+    chip.appendChild(span);
+    row.appendChild(chip);
+  }
+
+  return row;
+}
+
+function buildRadarLoadingSection() {
+  const section = document.createElement("div");
+  section.className = "compare-section";
+
+  const titleEl = document.createElement("div");
+  titleEl.className = "compare-section-title";
+  titleEl.textContent = "Z-Score Radar";
+  titleEl.title = SECTION_INFO.radar;
+  section.appendChild(titleEl);
+
+  const note = document.createElement("div");
+  note.className = "compare-radar-loading";
+  note.textContent = "Loading advanced stats…";
+  section.appendChild(note);
+
+  return section;
+}
+
 function buildRadarSection(
   players,
   onOpenCard,
   onRemove,
   leaguePool,
-  skaterCats,
-  goalieCats,
+  cats,
+  initialMode = "league",
 ) {
   const section = document.createElement("div");
   section.className = "compare-section";
@@ -287,9 +424,7 @@ function buildRadarSection(
   const modeSelect = document.createElement("select");
   modeSelect.className = "selector";
   modeSelect.title = "Reference pool used to compute the z-scores.";
-  const modes = [
-    ["selected", "vs compared players"],
-  ];
+  const modes = [["selected", "vs compared players"]];
   if (!goalie) {
     modes.push(["group", "vs same group"]);
     modes.push(["position", "vs same position"]);
@@ -301,40 +436,27 @@ function buildRadarSection(
     opt.textContent = label;
     modeSelect.appendChild(opt);
   }
-  modeSelect.value = "league";
+  const allowedModes = new Set(modes.map(([value]) => value));
+  modeSelect.value = allowedModes.has(initialMode) ? initialMode : "league";
 
-  header.appendChild(titleEl);
   header.appendChild(modeSelect);
   section.appendChild(header);
 
   const row = document.createElement("div");
   row.className = "compare-radar-row";
   row.appendChild(
-    buildChartContainer(
-      players,
-      leaguePool,
-      modeSelect.value,
-      skaterCats,
-      goalieCats,
-    ),
+    buildChartContainer(players, leaguePool, modeSelect.value, cats),
   );
   row.appendChild(buildPlayerList(players, onOpenCard, onRemove));
   section.appendChild(row);
 
   modeSelect.addEventListener("change", () => {
     const oldContainer = row.querySelector(".compare-chart-container");
-    if (oldContainer) {
-      if (oldContainer.chart) oldContainer.chart.destroy();
-      oldContainer.replaceWith(
-        buildChartContainer(
-          players,
-          leaguePool,
-          modeSelect.value,
-          skaterCats,
-          goalieCats,
-        ),
-      );
-    }
+    if (!oldContainer) return;
+    if (oldContainer.chart) oldContainer.chart.destroy();
+    oldContainer.replaceWith(
+      buildChartContainer(players, leaguePool, modeSelect.value, cats),
+    );
   });
 
   return section;
@@ -351,8 +473,95 @@ export function openCompareModal(
   const overlay = document.createElement("div");
   overlay.className = "player-card-overlay";
 
+  const goalie = isGoalieRow(players[0]);
+  const advancedVisibility = loadAdvancedVisibility();
   let remaining = players.slice();
   let activePanel = null;
+  let radarMode = "league";
+  let enrichedPool = leaguePool;
+  let enrichedById = new Map();
+  let advancedLoaded = false;
+  let loadStarted = false;
+  let closed = false;
+
+  const viewPlayers = () =>
+    remaining.map((p) => enrichedById.get(p.ID) || p);
+
+  const enabledAdvanced = () =>
+    (goalie ? GOALIE_ADVANCED_STATS : SKATER_ADVANCED_STATS).filter(
+      (key) => advancedVisibility[key] !== false,
+    );
+
+  const radarAdvanced = () => {
+    if (!advancedLoaded) return [];
+    const current = viewPlayers();
+    return enabledAdvanced().filter((key) =>
+      current.some((p) => Number.isFinite(Number(p[key]))),
+    );
+  };
+
+  const radarCats = () => {
+    const cats = [];
+    const add = (keys) => {
+      for (const key of keys) {
+        if (!cats.includes(key)) cats.push(key);
+      }
+    };
+    add(goalie ? goalieCats : skaterCats);
+    add(getVisibleComparisonRadarStats(goalie));
+    add(radarAdvanced());
+    return cats;
+  };
+
+  const tableTitle = () =>
+    `${season ? formatSeason(season) + " " : ""}Stats`;
+
+  const orderedPlayers = () =>
+    viewPlayers()
+      .slice()
+      .sort((a, b) => {
+        const ka = goalie ? a.rankGAA : a.rankP;
+        const kb = goalie ? b.rankGAA : b.rankP;
+        return (ka ?? Infinity) - (kb ?? Infinity);
+      });
+
+  const renderSections = () => {
+    const body = overlay.querySelector(".compare-body");
+    if (!body) return;
+
+    const scrollTop = body.scrollTop;
+    const modeSelect = body.querySelector(".compare-radar-header select");
+    if (modeSelect) radarMode = modeSelect.value;
+
+    const oldChart = body.querySelector(".compare-chart-container");
+    if (oldChart?.chart) oldChart.chart.destroy();
+
+    body.textContent = "";
+    const ordered = orderedPlayers();
+    body.appendChild(
+      buildTableSection(ordered, tableTitle(), SECTION_INFO.stats, {
+        advancedVisibility,
+        advancedLoading: !advancedLoaded,
+      }),
+    );
+
+    if (advancedLoaded) {
+      body.appendChild(
+        buildRadarSection(
+          ordered,
+          openPlayerPanel,
+          removePlayer,
+          enrichedPool,
+          radarCats(),
+          radarMode,
+        ),
+      );
+    } else {
+      body.appendChild(buildRadarLoadingSection());
+    }
+
+    body.scrollTop = scrollTop;
+  };
 
   const closePlayerPanel = () => {
     if (activePanel) {
@@ -363,6 +572,11 @@ export function openCompareModal(
   };
 
   const closeModal = () => {
+    if (closed) return;
+    closed = true;
+    closePlayerPanel();
+    const chart = overlay.querySelector(".compare-chart-container");
+    if (chart?.chart) chart.chart.destroy();
     document.removeEventListener("keydown", keyHandler);
     overlay.remove();
   };
@@ -394,7 +608,7 @@ export function openCompareModal(
       return;
     }
     closePlayerPanel();
-    renderCard();
+    renderSections();
   };
 
   function renderCard() {
@@ -415,36 +629,46 @@ export function openCompareModal(
     title.title = SECTION_INFO.comparison;
     card.appendChild(title);
 
+    card.appendChild(
+      buildAdvancedControls(goalie, advancedVisibility, () => {
+        saveAdvancedVisibility(advancedVisibility);
+        renderSections();
+      }),
+    );
+
     const body = document.createElement("div");
     body.className = "compare-body";
     card.appendChild(body);
 
-    const goalie = isGoalieRow(remaining[0]);
-    const ordered = remaining.slice().sort((a, b) => {
-      const ka = goalie ? a.rankGAA : a.rankP;
-      const kb = goalie ? b.rankGAA : b.rankP;
-      return (ka ?? Infinity) - (kb ?? Infinity);
-    });
-
-    body.appendChild(
-      buildTableSection(
-        ordered,
-        `${season ? formatSeason(season) + " " : ""}Stats`,
-        SECTION_INFO.stats,
-      ),
-    );
-    body.appendChild(
-      buildRadarSection(
-        ordered,
-        openPlayerPanel,
-        removePlayer,
-        leaguePool,
-        skaterCats,
-        goalieCats,
-      ),
-    );
-
     overlay.appendChild(card);
+    renderSections();
+  }
+
+  async function loadAdvanced() {
+    if (loadStarted) return;
+    loadStarted = true;
+    if (!season) {
+      advancedLoaded = true;
+      renderSections();
+      return;
+    }
+
+    try {
+      const mp = goalie
+        ? await loadMoneyPuckGoalies(season)
+        : await loadMoneyPuckSkaters(season);
+      if (closed || !overlay.isConnected) return;
+      const { enriched, byId } = enrichPool(leaguePool, mp, goalie);
+      enrichedPool = enriched;
+      enrichedById = byId;
+      advancedLoaded = true;
+      renderSections();
+    } catch (err) {
+      console.error("Failed to load comparison advanced stats:", err);
+      if (closed || !overlay.isConnected) return;
+      advancedLoaded = true;
+      renderSections();
+    }
   }
 
   document.addEventListener("keydown", keyHandler);
@@ -454,4 +678,6 @@ export function openCompareModal(
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) closeModal();
   });
+
+  loadAdvanced();
 }

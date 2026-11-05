@@ -52,6 +52,9 @@ const HEADER_LABELS = {
   BLK: "BLK",
   HITS: "HITS",
   SA: "SA",
+  GA: "GA",
+  SV: "SV",
+  SO: "SO",
   RotoVal: "Z",
   "RotoVal-Pos": "ZP",
   "RotoVal-PosExact": "ZPX",
@@ -81,7 +84,10 @@ function orderColumns(cols) {
 }
 
 const HIDDEN_COLUMNS_STORAGE_KEY = "nhl_stats_hidden_cols";
-const DEFAULT_HIDDEN_COLUMNS = ["S", "BLK", "HITS", "SA"];
+const HIDDEN_COLUMNS_VERSION_KEY = "nhl_stats_hidden_cols_version";
+const HIDDEN_COLUMNS_VERSION = 2;
+const DEFAULT_HIDDEN_COLUMNS = ["S", "BLK", "HITS", "SA", "GA", "SO"];
+const NEW_DEFAULT_HIDDEN_COLUMNS = ["GA", "SO"];
 
 const PACE82_COLUMNS = [
   "G82",
@@ -103,27 +109,53 @@ const COLUMN_TOGGLES = [
   ["S", "Shots"],
   ["BLK", "Blocks"],
   ["HITS", "Hits"],
+  ["GAA", "GAA"],
+  ["SV%", "SV%"],
+  ["GA", "Goals against"],
+  ["SV", "Saves"],
+  ["SO", "Shutouts"],
   ["SA", "Shots against"],
 ];
+
+const SKATER_COMPARISON_STATS = ["PPP", "+/-", "TOI", "S", "BLK", "HITS"];
+const GOALIE_COMPARISON_STATS = ["SV%", "GAA", "SA", "SV", "GA", "SO"];
+const SKATER_COMPARISON_RADAR_STATS = ["S", "BLK", "HITS"];
+const GOALIE_COMPARISON_RADAR_STATS = ["SA", "GA", "SV", "SO"];
 
 function loadHiddenColumns() {
   try {
     const stored = JSON.parse(
       localStorage.getItem(HIDDEN_COLUMNS_STORAGE_KEY) || "null",
     );
-    if (Array.isArray(stored)) return new Set(stored);
+    if (Array.isArray(stored)) {
+      const hidden = new Set(stored);
+      const version =
+        Number(localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY)) || 0;
+      if (version < HIDDEN_COLUMNS_VERSION) {
+        for (const col of NEW_DEFAULT_HIDDEN_COLUMNS) hidden.add(col);
+        saveHiddenColumns(hidden);
+      }
+      return hidden;
+    }
   } catch (err) {
     console.error("Failed to load hidden columns:", err);
   }
-  return new Set(DEFAULT_HIDDEN_COLUMNS);
+  const hidden = new Set(DEFAULT_HIDDEN_COLUMNS);
+  try {
+    saveHiddenColumns(hidden);
+  } catch (err) {
+    console.error("Failed to save hidden columns:", err);
+  }
+  return hidden;
 }
 
 const hiddenColumns = loadHiddenColumns();
 
-function saveHiddenColumns() {
+function saveHiddenColumns(columns = hiddenColumns) {
+  localStorage.setItem(HIDDEN_COLUMNS_STORAGE_KEY, JSON.stringify([...columns]));
   localStorage.setItem(
-    HIDDEN_COLUMNS_STORAGE_KEY,
-    JSON.stringify([...hiddenColumns]),
+    HIDDEN_COLUMNS_VERSION_KEY,
+    String(HIDDEN_COLUMNS_VERSION),
   );
 }
 
@@ -135,6 +167,18 @@ function getVisibleRotoCategories() {
 
 function getVisibleGoalieRotoCategories() {
   return LEAGUE_CONFIG.goalieRotoCategories.filter((c) => !hiddenColumns.has(c));
+}
+
+function getVisibleComparisonStats(goalie) {
+  const stats = goalie ? GOALIE_COMPARISON_STATS : SKATER_COMPARISON_STATS;
+  return stats.filter((c) => !hiddenColumns.has(c));
+}
+
+function getVisibleComparisonRadarStats(goalie) {
+  const stats = goalie
+    ? GOALIE_COMPARISON_RADAR_STATS
+    : SKATER_COMPARISON_RADAR_STATS;
+  return stats.filter((c) => !hiddenColumns.has(c));
 }
 
 function onColumnVisibilityChange(fn) {
@@ -648,6 +692,8 @@ export {
   onCompareChange,
   getVisibleRotoCategories,
   getVisibleGoalieRotoCategories,
+  getVisibleComparisonStats,
+  getVisibleComparisonRadarStats,
   onColumnVisibilityChange,
   MAX_COMPARE,
 };

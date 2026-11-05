@@ -10,6 +10,7 @@ import {
   loadMoneyPuckSkaters,
   loadMoneyPuckGoalies,
   loadDepthCharts,
+  loadStartingGoalies,
 } from "./api.js";
 import { openPlayerCard } from "./playerCard.js";
 import {
@@ -114,6 +115,94 @@ function projectedGoalieFromDepth(depthCharts, team, goalieList) {
       return name.split(/\s+/).pop() === starterLast;
     }) || null
   );
+}
+
+function dailyFaceoffNumber(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function dailyFaceoffStarterForTeam(games, abbrev) {
+  for (const game of games || []) {
+    if (game.awayTeamAbbreviation === abbrev) {
+      return {
+        name: game.awayGoalieName,
+        status: game.awayNewsStrengthName,
+        wins: dailyFaceoffNumber(game.awayGoalieWins),
+        losses: dailyFaceoffNumber(game.awayGoalieLosses),
+        otLosses: dailyFaceoffNumber(game.awayGoalieOvertimeLosses),
+        shutouts: dailyFaceoffNumber(game.awayGoalieShutouts),
+        savePctg: dailyFaceoffNumber(game.awayGoalieSavePercentage),
+        gaa: dailyFaceoffNumber(game.awayGoalieGoalsAgainstAvg),
+        newsDetails: game.awayNewsDetails,
+      };
+    }
+    if (game.homeTeamAbbreviation === abbrev) {
+      return {
+        name: game.homeGoalieName,
+        status: game.homeNewsStrengthName,
+        wins: dailyFaceoffNumber(game.homeGoalieWins),
+        losses: dailyFaceoffNumber(game.homeGoalieLosses),
+        otLosses: dailyFaceoffNumber(game.homeGoalieOvertimeLosses),
+        shutouts: dailyFaceoffNumber(game.homeGoalieShutouts),
+        savePctg: dailyFaceoffNumber(game.homeGoalieSavePercentage),
+        gaa: dailyFaceoffNumber(game.homeGoalieGoalsAgainstAvg),
+        newsDetails: game.homeNewsDetails,
+      };
+    }
+  }
+  return null;
+}
+
+function matchGoalieByName(goalieList, name) {
+  const target = normalizeName(name);
+  if (!target) return null;
+  const exact = (goalieList || []).find(
+    (g) => normalizeName(g?.name?.default || g?.name) === target,
+  );
+  if (exact) return exact;
+  const targetLast = target.split(/\s+/).pop();
+  return (
+    (goalieList || []).find((g) => {
+      const candidate = normalizeName(g?.name?.default || g?.name);
+      return candidate.split(/\s+/).pop() === targetLast;
+    }) || null
+  );
+}
+
+function resolveProjectedGoalie(dfStarter, dfGames, fallback, goalieList) {
+  if (dfGames && dfStarter?.name) {
+    const matched = matchGoalieByName(goalieList, dfStarter.name);
+    const base = matched || {};
+    const goalie = {
+      ...base,
+      name: { ...(base.name || {}), default: dfStarter.name },
+      confirmationStatus:
+        String(dfStarter.status || "").trim() || "Unconfirmed",
+      newsDetails: dfStarter.newsDetails || "",
+    };
+    if (goalie.record == null) {
+      const wins = goalie.wins ?? dfStarter.wins;
+      const losses = goalie.losses ?? dfStarter.losses;
+      const otLosses = goalie.otLosses ?? dfStarter.otLosses;
+      if (wins != null || losses != null || otLosses != null) {
+        goalie.record = `${wins ?? 0}-${losses ?? 0}-${otLosses ?? 0}`;
+      }
+    }
+    if (goalie.gaa == null && dfStarter.gaa != null) goalie.gaa = dfStarter.gaa;
+    if (goalie.savePctg == null && dfStarter.savePctg != null)
+      goalie.savePctg = dfStarter.savePctg;
+    if (goalie.shutouts == null && dfStarter.shutouts != null)
+      goalie.shutouts = dfStarter.shutouts;
+    return goalie;
+  }
+  const goalie = fallback;
+  if (goalie) {
+    goalie.confirmationStatus = "Unconfirmed";
+    goalie.newsDetails = "";
+  }
+  return goalie;
 }
 
 function section(title, note) {
@@ -480,6 +569,7 @@ const COMPARE_ROWS = [
     fmt: (v) => pct(v),
     better: "high",
     rankKey: "faceoffWinPct",
+    available: (away, home) => away.faceoffWinPct != null && home.faceoffWinPct != null,
   },
   {
     label: "Shutouts",
@@ -507,6 +597,7 @@ function compareTable(away, home, awayAbbrev, homeAbbrev) {
     const tr = document.createElement("tr");
     const awayVal = def.raw ? def.raw(away) : null;
     const homeVal = def.raw ? def.raw(home) : null;
+    if (def.raw && (awayVal == null || homeVal == null)) continue;
     const awayText = def.text ? def.text(away) : def.fmt(awayVal);
     const homeText = def.text ? def.text(home) : def.fmt(homeVal);
     const awayRank = def.rankKey ? away.ranks?.[def.rankKey] : null;
@@ -541,6 +632,283 @@ function compareTable(away, home, awayAbbrev, homeAbbrev) {
   }
   table.appendChild(tbody);
   return table;
+}
+
+// --- Last five -----------------------------------------------------------
+
+function lastFiveCompletedGames(scheduleGames, currentGameId) {
+  const currentId = Number(currentGameId);
+  return (scheduleGames || [])
+    .filter(
+      (g) =>
+        g.gameType === 2 &&
+        FINAL_STATES.has(g.gameState) &&
+        Number(g.id) !== currentId,
+    )
+    .sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0))
+    .slice(0, 5);
+}
+
+async function computeLastFiveSummary(scheduleGames, abbrev, currentGameId) {
+  const games = lastFiveCompletedGames(scheduleGames, currentGameId);
+  if (!games.length) return null;
+
+  const landings = await Promise.all(games.map((g) => loadGameLanding(g.id)));
+  const usable = games
+    .map((g, i) => ({ game: g, landing: landings[i] }))
+    .filter((entry) => entry.landing);
+  if (!usable.length) return null;
+
+  let wins = 0;
+  let losses = 0;
+  let otLosses = 0;
+  let gf = 0;
+  let ga = 0;
+  let sf = 0;
+  let sa = 0;
+  let ppGoals = 0;
+  let ppOpp = 0;
+  let pkGoalsAllowed = 0;
+  let pkOpp = 0;
+  let shutouts = 0;
+  let homeGames = 0;
+  let homeWins = 0;
+  let homeLosses = 0;
+  let homeOt = 0;
+  let roadGames = 0;
+  let roadWins = 0;
+  let roadLosses = 0;
+  let roadOt = 0;
+
+  for (const { game, landing } of usable) {
+    const teamIsAway = game.awayTeam?.abbrev === abbrev;
+    const me = teamIsAway ? landing.awayTeam : landing.homeTeam;
+    const opp = teamIsAway ? landing.homeTeam : landing.awayTeam;
+    const myScore = Number(
+      me?.score ?? (teamIsAway ? game.awayTeam?.score : game.homeTeam?.score),
+    );
+    const oppScore = Number(
+      opp?.score ?? (teamIsAway ? game.homeTeam?.score : game.awayTeam?.score),
+    );
+    const mySog = Number(me?.sog ?? 0);
+    const oppSog = Number(opp?.sog ?? 0);
+
+    gf += myScore;
+    ga += oppScore;
+    sf += mySog;
+    sa += oppSog;
+    if (oppScore === 0) shutouts++;
+
+    const wentOt = landing.periodDescriptor?.periodType !== "REG";
+    let result = "L";
+    if (myScore > oppScore) {
+      wins++;
+      result = "W";
+    } else if (wentOt) {
+      otLosses++;
+      result = "OTL";
+    } else {
+      losses++;
+    }
+
+    if (teamIsAway) {
+      roadGames++;
+      if (result === "W") roadWins++;
+      else if (result === "OTL") roadOt++;
+      else roadLosses++;
+    } else {
+      homeGames++;
+      if (result === "W") homeWins++;
+      else if (result === "OTL") homeOt++;
+      else homeLosses++;
+    }
+
+    const scoring = landing.summary?.scoring || [];
+    for (const period of scoring) {
+      for (const goal of period.goals || []) {
+        if (goal.strength !== "pp") continue;
+        if (goal.teamAbbrev?.default === abbrev) ppGoals++;
+        else pkGoalsAllowed++;
+      }
+    }
+
+    const penaltyPeriods = landing.summary?.penalties || [];
+    for (const period of penaltyPeriods) {
+      for (const penalty of period.penalties || []) {
+        const committed = penalty.teamAbbrev?.default;
+        if (!committed) continue;
+        if (committed !== abbrev) ppOpp++;
+        else pkOpp++;
+      }
+    }
+  }
+
+  const gp = usable.length;
+  const points = wins * 2 + otLosses;
+  const homeRecord =
+    homeGames > 0
+      ? {
+          text: `${homeWins}-${homeLosses}-${homeOt}`,
+          pct: (homeWins * 2 + homeOt) / (homeGames * 2),
+        }
+      : null;
+  const roadRecord =
+    roadGames > 0
+      ? {
+          text: `${roadWins}-${roadLosses}-${roadOt}`,
+          pct: (roadWins * 2 + roadOt) / (roadGames * 2),
+        }
+      : null;
+
+  return {
+    wins,
+    losses,
+    otLosses,
+    points,
+    pointPct: gp > 0 ? points / (gp * 2) : null,
+    goalsForPerGame: gf / gp,
+    goalsAgainstPerGame: ga / gp,
+    shotsForPerGame: sf / gp,
+    shotsAgainstPerGame: sa / gp,
+    powerPlayPct: ppOpp > 0 ? ppGoals / ppOpp : null,
+    penaltyKillPct: pkOpp > 0 ? 1 - pkGoalsAllowed / pkOpp : null,
+    faceoffWinPct: null,
+    teamShutouts: shutouts,
+    ppTime: null,
+    pkTime: null,
+    homeRecord,
+    roadRecord,
+    ppTimeAverage: null,
+    pkTimeAverage: null,
+    ranks: {},
+  };
+}
+
+// --- Starter form (last 5) -----------------------------------------------
+
+function parseToiMinutes(toi) {
+  if (!toi) return 0;
+  const parts = String(toi).split(":");
+  if (parts.length === 2) {
+    const minutes = Number(parts[0]);
+    const seconds = Number(parts[1]);
+    if (Number.isFinite(minutes) && Number.isFinite(seconds)) {
+      return minutes + seconds / 60;
+    }
+  }
+  const value = Number(toi);
+  return Number.isFinite(value) ? value : 0;
+}
+
+async function computeGoalieLastFive(goalie, season, currentGameId) {
+  if (!goalie?.playerId) return null;
+  const log = await loadGameLog(goalie.playerId, season);
+  const currentId = Number(currentGameId);
+  const recent = (log?.gameLog || [])
+    .filter(
+      (game) =>
+        game.decision != null &&
+        (!Number.isFinite(currentId) || Number(game.gameId) <= currentId),
+    )
+    .sort((a, b) => String(b.gameDate).localeCompare(String(a.gameDate)))
+    .slice(0, 5);
+  if (!recent.length) return null;
+
+  let wins = 0;
+  let losses = 0;
+  let otLosses = 0;
+  let goalsAgainst = 0;
+  let shotsAgainst = 0;
+  let toiMinutes = 0;
+  let shutouts = 0;
+
+  for (const game of recent) {
+    if (game.decision === "W") wins++;
+    else if (game.decision === "L") losses++;
+    else if (
+      game.decision === "O" ||
+      game.decision === "OT" ||
+      game.decision === "SO" ||
+      game.decision === "OTL"
+    )
+      otLosses++;
+
+    goalsAgainst += Number(game.goalsAgainst || 0);
+    shotsAgainst += Number(game.shotsAgainst || 0);
+    toiMinutes += parseToiMinutes(game.toi);
+    if (Number(game.goalsAgainst) === 0) shutouts += 1;
+  }
+
+  const saves = shotsAgainst - goalsAgainst;
+  const savePct =
+    shotsAgainst > 0 ? saves / shotsAgainst : null;
+  const gaa =
+    toiMinutes > 0
+      ? (goalsAgainst / toiMinutes) * 60
+      : recent.length
+        ? goalsAgainst / recent.length
+        : null;
+
+  return {
+    name: goalie?.name?.default || goalie?.name || "—",
+    gp: recent.length,
+    record: `${wins}-${losses}-${otLosses}`,
+    goalsAgainst,
+    shotsAgainst,
+    saves,
+    savePct,
+    gaa,
+    shutouts,
+  };
+}
+
+function renderStarterForm(awayStats, homeStats, awayAbbrev, homeAbbrev) {
+  if (!awayStats || !homeStats) return null;
+
+  const wrap = section(
+    "Starter form (last 5)",
+    `${awayStats.name} vs ${homeStats.name}`,
+  );
+  const card = el("div", "card");
+  const table = el("table", "mini-table compare-table");
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  headRow.appendChild(el("th", "compare-metric", ""));
+  headRow.appendChild(el("th", "compare-away", awayAbbrev));
+  headRow.appendChild(el("th", "compare-home", homeAbbrev));
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const fmt = (value, formatter) =>
+    value == null ? "—" : formatter(value);
+
+  const rows = [
+    ["Games", awayStats.gp, homeStats.gp, (value) => value],
+    ["Record", awayStats.record, homeStats.record, (value) => value],
+    ["GA", awayStats.goalsAgainst, homeStats.goalsAgainst, (value) => value],
+    ["SA", awayStats.shotsAgainst, homeStats.shotsAgainst, (value) => value],
+    ["Saves", awayStats.saves, homeStats.saves, (value) => value],
+    ["SV%", awayStats.savePct, homeStats.savePct, (value) => pct(value)],
+    ["GAA", awayStats.gaa, homeStats.gaa, (value) => num(value)],
+    ["SO", awayStats.shutouts, homeStats.shutouts, (value) => value],
+  ];
+
+  const tbody = document.createElement("tbody");
+  for (const [label, awayValue, homeValue, formatter] of rows) {
+    const tr = document.createElement("tr");
+    tr.appendChild(el("td", "compare-metric", label));
+    tr.appendChild(
+      el("td", "compare-away", fmt(awayValue, formatter)),
+    );
+    tr.appendChild(
+      el("td", "compare-home", fmt(homeValue, formatter)),
+    );
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  card.appendChild(table);
+  wrap.appendChild(card);
+  return wrap;
 }
 
 // --- Matchup edges --------------------------------------------------------
@@ -649,7 +1017,17 @@ function renderEdges(edges, awayAbbrev, homeAbbrev) {
 
 function goalieCard(goalie, team, tag, gameDate) {
   const card = el("div", "card goalie-card");
-  card.appendChild(el("div", "goalie-tag", tag));
+  const tagRow = el("div", "goalie-tag-row");
+  tagRow.appendChild(el("div", "goalie-tag", tag));
+  if (goalie) {
+    const status = goalie.confirmationStatus || "Unconfirmed";
+    const statusKey = status.toLowerCase().replace(/\s+/g, "-");
+    const badge = el("span", `badge goalie-status ${statusKey}`, status);
+    badge.title =
+      String(goalie.newsDetails || "").trim() || `Daily Faceoff: ${status}`;
+    tagRow.appendChild(badge);
+  }
+  card.appendChild(tagRow);
 
   const top = el("div", "goalie-top");
   if (goalie?.headshot) {
@@ -678,9 +1056,9 @@ function goalieCard(goalie, team, tag, gameDate) {
     const stats = el("div", "goalie-stats");
     for (const [label, value] of [
       ["Record", goalie.record || "—"],
-      ["GAA", num(goalie.gaa)],
-      ["SV%", pct(goalie.savePctg)],
-      ["SO", goalie.shutouts],
+      ["GAA", goalie.gaa == null ? "—" : num(goalie.gaa)],
+      ["SV%", goalie.savePctg == null ? "—" : pct(goalie.savePctg)],
+      ["SO", goalie.shutouts ?? "—"],
     ]) {
       const stat = el("div", "goalie-stat");
       stat.appendChild(el("span", "goalie-stat-value", String(value)));
@@ -1376,15 +1754,25 @@ async function main() {
   root.innerHTML = "";
   root.appendChild(renderHeader(landing, awayRecord, homeRecord));
 
-  const [teamSummary, awaySchedule, standings, powerplay, penaltykill, depthCharts] =
-    await Promise.all([
-      loadTeamSummary(landing.season),
-      loadClubSchedule(away.abbrev),
-      loadStandings(),
-      loadTeamPowerPlay(landing.season),
-      loadTeamPenaltyKill(landing.season),
-      loadDepthCharts(),
-    ]);
+  const [
+    teamSummary,
+    awaySchedule,
+    homeSchedule,
+    standings,
+    powerplay,
+    penaltykill,
+    depthCharts,
+    startingGoalies,
+  ] = await Promise.all([
+    loadTeamSummary(landing.season),
+    loadClubSchedule(away.abbrev),
+    loadClubSchedule(home.abbrev),
+    loadStandings(),
+    loadTeamPowerPlay(landing.season),
+    loadTeamPenaltyKill(landing.season),
+    loadDepthCharts(),
+    loadStartingGoalies(landing.gameDate),
+  ]);
 
   const awaySummary = teamSummary.find((t) => t.teamId === away.id);
   const homeSummary = teamSummary.find((t) => t.teamId === home.id);
@@ -1397,12 +1785,6 @@ async function main() {
   );
   const awayLeaders = matchup.goalieComparison?.awayTeam?.leaders || [];
   const homeLeaders = matchup.goalieComparison?.homeTeam?.leaders || [];
-  let awayGoalie =
-    projectedGoalieFromDepth(depthCharts, away, awayGoalieList) ||
-    awayLeaders[0];
-  let homeGoalie =
-    projectedGoalieFromDepth(depthCharts, home, homeGoalieList) ||
-    homeLeaders[0];
   const fallbackGoalie = (team) => {
     const teamDepth = depthCharts?.teams?.find(
       (t) => t.abbreviation === team.abbrev,
@@ -1410,8 +1792,30 @@ async function main() {
     const starterName = teamDepth?.goalies?.starter?.name;
     return starterName ? { name: { default: starterName } } : null;
   };
-  if (!awayGoalie) awayGoalie = fallbackGoalie(away);
-  if (!homeGoalie) homeGoalie = fallbackGoalie(home);
+  const awayDfStarter = dailyFaceoffStarterForTeam(
+    startingGoalies,
+    away.abbrev,
+  );
+  const homeDfStarter = dailyFaceoffStarterForTeam(
+    startingGoalies,
+    home.abbrev,
+  );
+  let awayGoalie = resolveProjectedGoalie(
+    awayDfStarter,
+    startingGoalies,
+    projectedGoalieFromDepth(depthCharts, away, awayGoalieList) ||
+      awayLeaders[0] ||
+      fallbackGoalie(away),
+    awayGoalieList,
+  );
+  let homeGoalie = resolveProjectedGoalie(
+    homeDfStarter,
+    startingGoalies,
+    projectedGoalieFromDepth(depthCharts, home, homeGoalieList) ||
+      homeLeaders[0] ||
+      fallbackGoalie(home),
+    homeGoalieList,
+  );
   const mergeGoalie = (goalie, leaders) => {
     if (!goalie) return goalie;
     if (!goalie.headshot) {
@@ -1451,6 +1855,20 @@ async function main() {
     compare.appendChild(card);
     root.appendChild(compare);
 
+    const [awayLast5, homeLast5] = await Promise.all([
+      computeLastFiveSummary(awaySchedule?.games, away.abbrev, gameId),
+      computeLastFiveSummary(homeSchedule?.games, home.abbrev, gameId),
+    ]);
+    if (awayLast5 && homeLast5) {
+      const lastFive = section("Last five", "last 5 games (or fewer)");
+      const lastFiveCard = el("div", "card");
+      lastFiveCard.appendChild(
+        compareTable(awayLast5, homeLast5, away.abbrev, home.abbrev),
+      );
+      lastFive.appendChild(lastFiveCard);
+      root.appendChild(lastFive);
+    }
+
     root.appendChild(
       renderEdges(
         buildEdges(
@@ -1468,7 +1886,10 @@ async function main() {
   }
 
   if (awayGoalie || homeGoalie) {
-    const goalieWrap = section("Projected starters", "verify before puck drop");
+    const goalieWrap = section(
+      "Projected starters",
+      "Daily Faceoff · verify before puck drop",
+    );
     const goalieGrid = el("div", "preview-grid");
   goalieGrid.appendChild(
     goalieCard(awayGoalie, away, `${away.abbrev} — starter`, landing.gameDate),
@@ -1479,6 +1900,18 @@ async function main() {
     goalieWrap.appendChild(goalieGrid);
     root.appendChild(goalieWrap);
   }
+
+  const [awayGoalieForm, homeGoalieForm] = await Promise.all([
+    computeGoalieLastFive(awayGoalie, landing.season, gameId),
+    computeGoalieLastFive(homeGoalie, landing.season, gameId),
+  ]);
+  const starterForm = renderStarterForm(
+    awayGoalieForm,
+    homeGoalieForm,
+    away.abbrev,
+    home.abbrev,
+  );
+  if (starterForm) root.appendChild(starterForm);
 
   root.appendChild(renderH2H(awaySchedule?.games, away.abbrev, home.abbrev));
 

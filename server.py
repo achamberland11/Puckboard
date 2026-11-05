@@ -1,4 +1,6 @@
+import json
 import os
+import re
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
@@ -95,6 +97,44 @@ class ProxyHandler(SimpleHTTPRequestHandler):
                     self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
                     self.wfile.write(data)
+            except Exception as e:
+                self.send_response(502)
+                self.end_headers()
+                self.wfile.write(str(e).encode())
+        elif self.path.startswith("/dailyfaceoff/starting-goalies/"):
+            date = self.path[len("/dailyfaceoff/starting-goalies/"):].split("?", 1)[0]
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Invalid date")
+                return
+            target = f"https://www.dailyfaceoff.com/starting-goalies/{date}"
+            try:
+                req = urllib.request.Request(
+                    target,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                        "Accept": "text/html,application/xhtml+xml",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    html = resp.read().decode("utf-8", "replace")
+                match = re.search(
+                    r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>',
+                    html,
+                    re.S,
+                )
+                if not match:
+                    raise ValueError("__NEXT_DATA__ not found")
+                payload = json.loads(match.group(1))
+                data = payload["props"]["pageProps"]["data"]
+                body = json.dumps({"data": data}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
             except Exception as e:
                 self.send_response(502)
                 self.end_headers()

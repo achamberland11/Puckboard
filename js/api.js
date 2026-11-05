@@ -205,8 +205,11 @@ async function loadGoalies(season) {
       GP: p.gamesPlayed,
       W: p.wins,
       "SV%": p.savePct,
+      SV: p.saves,
       GAA: p.goalsAgainstAverage,
+      GA: p.goalsAgainst,
       SA: p.shotsAgainst,
+      SO: p.shutouts,
       ID: p.playerId,
     }));
   } catch (err) {
@@ -731,6 +734,19 @@ async function loadDepthCharts() {
   }
 }
 
+async function loadStartingGoalies(date) {
+  try {
+    return await fetchWithCache(
+      `/dailyfaceoff/starting-goalies/${date}`,
+      CACHE_KEY + "_df_starting_goalies_" + date,
+      SHORT_TTL,
+    );
+  } catch (err) {
+    console.error("Failed to load Daily Faceoff starting goalies:", date, err);
+    return null;
+  }
+}
+
 export {
   CACHE_KEY,
   fetchWithCache,
@@ -757,6 +773,7 @@ export {
   loadMoneyPuckGameLog,
   loadEdgeGoalieDetail,
   loadDepthCharts,
+  loadStartingGoalies,
   removeCacheKeys,
   TEAM_SLUGS,
 };
