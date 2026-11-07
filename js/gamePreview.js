@@ -989,7 +989,7 @@ function buildEdges(away, home, awayAbbrev, homeAbbrev, awayGoalie, homeGoalie) 
 }
 
 function renderEdges(edges, awayAbbrev, homeAbbrev) {
-  const wrap = section("Matchup edges", "who has the advantage today");
+  const wrap = section("Matchup edges");
   const card = el("div", "card edges-card");
   for (const edge of edges) {
     const row = el("div", "edge-row");
@@ -1080,7 +1080,7 @@ function goalieCard(goalie, team, tag, gameDate) {
 // --- H2H ------------------------------------------------------------------
 
 function renderH2H(games, awayAbbrev, homeAbbrev) {
-  const wrap = section("Head-to-head", `season series ${awayAbbrev} vs ${homeAbbrev}`);
+  const wrap = section("Head-to-head", `Season series ${awayAbbrev} vs ${homeAbbrev}`);
 
   const meetings = (games || []).filter(
     (g) =>
@@ -1224,7 +1224,7 @@ function renderHotPlayers(matchup, awayAbbrev, homeAbbrev) {
   const leaders = matchup?.skaterComparison?.leaders;
   if (!leaders?.length) return null;
 
-  const wrap = section("Hot players", "leaders over the last 5 games");
+  const wrap = section("Hot players", "Leaders over the last 5 games");
   const card = el("div", "card");
 
   const hotCell = (leader) => {
@@ -1261,7 +1261,7 @@ function renderTopPlayers(matchup, away, home) {
   const skaters = matchup?.skaterSeasonStats?.skaters;
   if (!skaters?.length) return null;
 
-  const wrap = section("Top players", "season leaders · advanced stats");
+  const wrap = section("Top players");
   const grid = el("div", "preview-grid");
   const headers = [
     "Player",
@@ -1348,7 +1348,7 @@ function renderGoalieTables(matchup, away, home) {
   const goalies = matchup?.goalieSeasonStats?.goalies;
   if (!goalies?.length) return null;
 
-  const wrap = section("Goalies", "season stats · advanced");
+  const wrap = section("Goalies");
   const grid = el("div", "preview-grid");
   const headers = [
     "Goalie",
@@ -1657,7 +1657,7 @@ function renderCareerVsOpponent(matchup, away, home) {
 
   const wrap = section(
     "Career vs opponent",
-    "regular season · min 5 GP · per-game averages",
+    "Regular season · min 5 GP",
   );
   const grid = el("div", "preview-grid");
 
@@ -1846,7 +1846,7 @@ async function main() {
 
     const compare = section(
       "Team comparison",
-      `${formatSeason(landing.season)} · # = NHL rank`,
+      `${formatSeason(landing.season)}`,
     );
     const card = el("div", "card");
     card.appendChild(
@@ -1860,7 +1860,7 @@ async function main() {
       computeLastFiveSummary(homeSchedule?.games, home.abbrev, gameId),
     ]);
     if (awayLast5 && homeLast5) {
-      const lastFive = section("Last five", "last 5 games (or fewer)");
+      const lastFive = section("Last five");
       const lastFiveCard = el("div", "card");
       lastFiveCard.appendChild(
         compareTable(awayLast5, homeLast5, away.abbrev, home.abbrev),
