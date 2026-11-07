@@ -184,19 +184,19 @@ function resolveProjectedGoalie(dfStarter, dfGames, fallback, goalieList) {
         String(dfStarter.status || "").trim() || "Unconfirmed",
       newsDetails: dfStarter.newsDetails || "",
     };
-    if (goalie.record == null) {
-      const wins = goalie.wins ?? dfStarter.wins;
-      const losses = goalie.losses ?? dfStarter.losses;
-      const otLosses = goalie.otLosses ?? dfStarter.otLosses;
-      if (wins != null || losses != null || otLosses != null) {
-        goalie.record = `${wins ?? 0}-${losses ?? 0}-${otLosses ?? 0}`;
-      }
+    if (dfStarter.wins != null || dfStarter.losses != null || dfStarter.otLosses != null) {
+      const wins = dfStarter.wins ?? goalie.wins ?? 0;
+      const losses = dfStarter.losses ?? goalie.losses ?? 0;
+      const otLosses = dfStarter.otLosses ?? goalie.otLosses ?? 0;
+      goalie.record = `${wins}-${losses}-${otLosses}`;
     }
-    if (goalie.gaa == null && dfStarter.gaa != null) goalie.gaa = dfStarter.gaa;
-    if (goalie.savePctg == null && dfStarter.savePctg != null)
-      goalie.savePctg = dfStarter.savePctg;
-    if (goalie.shutouts == null && dfStarter.shutouts != null)
-      goalie.shutouts = dfStarter.shutouts;
+    if (dfStarter.gaa != null) goalie.gaa = dfStarter.gaa;
+    if (dfStarter.savePctg != null) goalie.savePctg = dfStarter.savePctg;
+    if (dfStarter.shutouts != null) goalie.shutouts = dfStarter.shutouts;
+    if (!goalie.headshot) {
+      const matched = matchGoalieByName(goalieList, dfStarter.name);
+      if (matched?.headshot) goalie.headshot = matched.headshot;
+    }
     return goalie;
   }
   const goalie = fallback;
