@@ -13,6 +13,9 @@ export const DEFAULT_WEIGHTS = {
   "SV%": 1,
   GAA: 1,
   SA: 1,
+  GA: 1,
+  SV: 1,
+  SO: 1,
   Age: 0.5,
 };
 

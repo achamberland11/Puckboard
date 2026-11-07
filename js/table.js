@@ -14,6 +14,9 @@ const RANK_COLS = new Set([
   "rankW",
   "rankSV",
   "rankGAA",
+  "rankGA",
+  "rankSaves",
+  "rankSO",
 ]);
 
 const CATEGORY_RANKS = {
@@ -25,6 +28,9 @@ const CATEGORY_RANKS = {
   W: "rankW",
   "SV%": "rankSV",
   GAA: "rankGAA",
+  GA: "rankGA",
+  SV: "rankSaves",
+  SO: "rankSO",
 };
 
 const VALUE_COLS = [
@@ -48,6 +54,9 @@ const HEADER_LABELS = {
   rankW: "W Rank",
   rankSV: "SV% Rank",
   rankGAA: "GAA Rank",
+  rankGA: "GA Rank",
+  rankSaves: "SV Rank",
+  rankSO: "SO Rank",
   S: "SOG",
   BLK: "BLK",
   HITS: "HITS",
@@ -109,6 +118,7 @@ const COLUMN_TOGGLES = [
   ["S", "Shots"],
   ["BLK", "Blocks"],
   ["HITS", "Hits"],
+  ["W", "Wins"],
   ["GAA", "GAA"],
   ["SV%", "SV%"],
   ["GA", "Goals against"],
@@ -583,6 +593,8 @@ function buildColumnToggleRow(columns) {
     saveHiddenColumns();
     if (visibilityListeners.size > 0) {
       for (const fn of visibilityListeners) fn();
+    } else if (typeof window.__onColumnVisibilityChange === "function") {
+      window.__onColumnVisibilityChange();
     } else {
       renderTable();
     }

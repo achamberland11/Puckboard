@@ -18,7 +18,7 @@ export const FIELD_INFO = {
   SV: "Saves: shots faced minus goals against.",
   Age: "Age at the start of the season (October 1st).",
   RVI: "Relative Value Index: weighted pace z-score composite over the displayed categories projected to 82 games, computed against the player's position group (Forward / Defence), plus an age-curve bonus peaking at prime age. Higher is better.",
-  GVI: "General Value Index: weighted pace z-score composite over the displayed categories projected to 82 games against the league pool (W, SV%, GAA for goalies), plus an age-curve bonus peaking at prime age (24 skaters, 25 goalies). Weighted by the values set in the Weights panel. Higher is better.",
+  GVI: "General Value Index: weighted pace z-score composite over the displayed categories projected to 82 games against the league pool (W, SV%, GAA, SA, GA, SV, SO for goalies), plus an age-curve bonus peaking at prime age (24 skaters, 25 goalies). Weighted by the values set in the Weights panel. Higher is better.",
   AGVI: "Average GVI across the available seasons, projected to an 82-game pace: an indicator of a player's typical year-over-year value.",
   Trend: "Trend: slope of the linear regression over the player's season GVI values (per season). Positive = improving, negative = declining.",
   Stab: "Stability: 1 / (1 + coefficient of variation of the season GVI values). 1 = identical every season, closer to 0 = highly inconsistent.",

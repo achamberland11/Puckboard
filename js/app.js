@@ -73,7 +73,7 @@ function filterByPosition(players, position) {
     case Position.D:
       return players.filter((p) => p.Position.includes("D"));
     case Position.G:
-      return goalies;
+      return seasonDataGoaler[season] || goalies;
     default:
       return players;
   }
@@ -90,6 +90,10 @@ function filterBySearch(players, query) {
 }
 
 function render() {
+  // Keep references in sync with the store so goalie (and skater) tables
+  // always reflect freshly recomputed stats after a column toggle.
+  allPlayers = seasonDataPlayer[season];
+  goalies = seasonDataGoaler[season];
   const removedView = positionFilter === Position.REMOVED;
   let filtered;
   if (removedView) {
@@ -109,7 +113,7 @@ function render() {
 
 const WEIGHT_GROUPS = [
   { title: "Skaters", cats: ["G", "A", "P", "PPP", "+/-", "S", "BLK", "HITS"] },
-  { title: "Goalers", cats: ["W", "SV%", "GAA", "SA"] },
+  { title: "Goalers", cats: ["W", "SV%", "GAA", "SA", "GA", "SV", "SO"] },
 ];
 
 const WEIGHT_HINTS = {
@@ -361,19 +365,18 @@ function buildWeightsPanel() {
   applyTiersAll();
   render();
 
-  onColumnVisibilityChange(() => {
+  const recomputeOnVisibility = () => {
+    allPlayers = seasonDataPlayer[season];
+    goalies = seasonDataGoaler[season];
     recomputeValueIndexes();
     recomputeRotoValues();
     applyTiersAll();
     render();
-  });
+  };
+  window.__onColumnVisibilityChange = recomputeOnVisibility;
+  onColumnVisibilityChange(recomputeOnVisibility);
 
-  onWeightsChange(() => {
-    recomputeValueIndexes();
-    recomputeRotoValues();
-    applyTiersAll();
-    render();
-  });
+  onWeightsChange(recomputeOnVisibility);
 
   document.querySelector(".filters-bar").appendChild(buildWeightsPanel());
 

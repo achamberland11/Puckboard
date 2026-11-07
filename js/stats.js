@@ -104,10 +104,19 @@ function groupValueIndex(data, groupFn, cats, inverted, targetKey, minGP, peak) 
   }
 }
 
+function minGPFor(data) {
+  if (!Array.isArray(data) || data.length === 0) return 1;
+  const gps = data.map((p) => Number(p.GP) || 0).filter((v) => v > 0);
+  if (gps.length === 0) return 1;
+  const avg = gps.reduce((s, v) => s + v, 0) / gps.length;
+  return Math.max(1, Math.ceil(avg * 0.1));
+}
+
 function addPlayerValueFields(data, cats = LEAGUE_CONFIG.skaterCategories) {
   if (!Array.isArray(data) || data.length === 0) return data;
   const cfg = LEAGUE_CONFIG;
-  const pool = eligible(data, cfg.minGP);
+  const minGP = minGPFor(data);
+  const pool = eligible(data, minGP);
   computePaceValues(data, cats);
 
   const inverted = cats.map(() => false);
@@ -118,7 +127,7 @@ function addPlayerValueFields(data, cats = LEAGUE_CONFIG.skaterCategories) {
     cats,
     inverted,
     "RVI",
-    cfg.minGP,
+    minGP,
     VALUE_WEIGHTS.skaterAgePeak,
   );
   return data;
@@ -130,10 +139,11 @@ function addGoalerValueFields(
 ) {
   if (!Array.isArray(data) || data.length === 0) return data;
   const cfg = LEAGUE_CONFIG;
-  const pool = eligible(data, cfg.goalieMinGP);
+  const minGP = minGPFor(data);
+  const pool = eligible(data, minGP);
   computePaceValues(data, cats);
 
-  const inverted = cats.map((c) => c === "GAA");
+  const inverted = cats.map((c) => c === "GAA" || c === "GA");
   assignValueIndex(pool, cats, inverted, "GVI", VALUE_WEIGHTS.goalieAgePeak);
   assignValueIndex(pool, cats, inverted, "RVI", VALUE_WEIGHTS.goalieAgePeak);
   return data;
@@ -177,6 +187,9 @@ const GOALIE_RANK_CONFIG = [
   { key: "W", rankKey: "rankW", ascending: false },
   { key: "SV%", rankKey: "rankSV", ascending: false },
   { key: "GAA", rankKey: "rankGAA", ascending: true },
+  { key: "GA", rankKey: "rankGA", ascending: true },
+  { key: "SV", rankKey: "rankSaves", ascending: false },
+  { key: "SO", rankKey: "rankSO", ascending: false },
 ];
 
 function addCategoryRanks(data, config) {
@@ -267,7 +280,7 @@ function groupRoto(data, groupFn, cats, inverted, targetKey, minGP, weightList) 
 }
 
 function computeZScores(players, cats, inverted) {
-  const pool = eligible(players, LEAGUE_CONFIG.minGP);
+  const pool = eligible(players, minGPFor(players));
   const zMaps = categoryZ(cats, inverted, pool);
   const result = new Map();
   for (const p of pool) {
@@ -281,7 +294,7 @@ function computeZScores(players, cats, inverted) {
 }
 
 function computeGoalieZScores(goalies, cats, inverted) {
-  const pool = eligible(goalies, LEAGUE_CONFIG.goalieMinGP);
+  const pool = eligible(goalies, minGPFor(goalies));
   const zMaps = categoryZ(cats, inverted, pool);
   const result = new Map();
   for (const p of pool) {
@@ -369,8 +382,9 @@ function computeRadarZScores(players, leaguePool, mode, cats, inverted, minGP) {
 
 function computeRotoValues(players, cats = LEAGUE_CONFIG.rotoCategories) {
   const cfg = LEAGUE_CONFIG;
+  const minGP = minGPFor(players);
   const inverted = cats.map(() => false);
-  const pool = eligible(players, cfg.minGP);
+  const pool = eligible(players, minGP);
   computePaceValues(players, cats);
 
   const weightList = cats.map((c) => getWeight(c));
@@ -381,7 +395,7 @@ function computeRotoValues(players, cats = LEAGUE_CONFIG.rotoCategories) {
     cats,
     inverted,
     "RotoVal-Pos",
-    cfg.minGP,
+    minGP,
     weightList,
   );
   groupRoto(
@@ -395,7 +409,7 @@ function computeRotoValues(players, cats = LEAGUE_CONFIG.rotoCategories) {
     cats,
     inverted,
     "RotoVal-PosExact",
-    cfg.minGP,
+    minGP,
     weightList,
   );
 
@@ -418,8 +432,9 @@ function computeRotoValues(players, cats = LEAGUE_CONFIG.rotoCategories) {
 
 function computeGoalieRotoValues(goalies, cats = LEAGUE_CONFIG.goalieRotoCategories) {
   const cfg = LEAGUE_CONFIG;
-  const inverted = cats.map((c) => c === "GAA");
-  const pool = eligible(goalies, cfg.goalieMinGP);
+  const minGP = minGPFor(goalies);
+  const inverted = cats.map((c) => c === "GAA" || c === "GA");
+  const pool = eligible(goalies, minGP);
   computePaceValues(goalies, cats);
 
   const weightList = cats.map((c) => getWeight(c));
@@ -431,6 +446,9 @@ function computeGoalieRotoValues(goalies, cats = LEAGUE_CONFIG.goalieRotoCategor
     else if (c === "SA") collected.push(["SA82", false]);
     else if (c === "SV%") collected.push(["SV%", false]);
     else if (c === "GAA") collected.push(["GAA", true]);
+    else if (c === "GA") collected.push(["GA", true]);
+    else if (c === "SV") collected.push(["SV", false]);
+    else if (c === "SO") collected.push(["SO", false]);
   }
   const paceCats = collected.map(([k]) => k);
   const paceInverted = collected.map(([, inv]) => inv);
@@ -519,4 +537,5 @@ export {
   computeRadarZScores,
   computeTiers,
   assignTiers,
+  minGPFor,
 };

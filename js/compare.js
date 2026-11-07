@@ -1,4 +1,4 @@
-import { computeRadarZScores, TIER_RANK } from "./stats.js";
+import { computeRadarZScores, TIER_RANK, minGPFor } from "./stats.js";
 import { LEAGUE_CONFIG } from "./config.js";
 import {
   loadMoneyPuckGoalies,
@@ -212,7 +212,7 @@ function buildTableSection(players, title, tip = "", options = {}) {
 function buildChartContainer(players, leaguePool, mode, cats) {
   const goalie = isGoalieRow(players[0]);
   const inverted = cats.map((c) => c === "GAA" || c === "GA");
-  const minGP = goalie ? LEAGUE_CONFIG.goalieMinGP : LEAGUE_CONFIG.minGP;
+  const minGP = minGPFor(leaguePool);
   const zScores = computeRadarZScores(
     players,
     leaguePool,

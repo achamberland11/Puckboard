@@ -3,7 +3,7 @@ export const LEAGUE_CONFIG = {
   skaterCategories: ["G", "A", "P", "PPP", "+/-"],
   goalieCategories: ["W", "SV%", "GAA"],
   rotoCategories: ["G", "A", "P", "PPP", "+/-", "S", "BLK", "HITS"],
-  goalieRotoCategories: ["W", "SV%", "GAA", "SA"],
+  goalieRotoCategories: ["W", "SV%", "GAA", "SA", "GA", "SV", "SO"],
   categoryWeights: {
     G: 1,
     A: 1,
@@ -17,6 +17,9 @@ export const LEAGUE_CONFIG = {
     BLK: 1,
     HITS: 1,
     SA: 1,
+    GA: 1,
+    SV: 1,
+    SO: 1,
   },
   minGP: 10,
   goalieMinGP: 10,
