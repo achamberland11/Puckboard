@@ -649,6 +649,47 @@ function lastFiveCompletedGames(scheduleGames, currentGameId) {
     .slice(0, 5);
 }
 
+function lastCompletedGames(scheduleGames, currentGameId, count = 10) {
+  const currentId = Number(currentGameId);
+  return (scheduleGames || [])
+    .filter(
+      (g) =>
+        g.gameType === 2 &&
+        FINAL_STATES.has(g.gameState) &&
+        Number(g.id) !== currentId,
+    )
+    .sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0))
+    .slice(0, count);
+}
+
+function renderTeamLastGames(games, abbrev) {
+  const card = el("div", "card h2h-card");
+  card.appendChild(el("div", "h2h-record", abbrev));
+  const rows = (games || []).map((g) => {
+    const away = g.awayTeam.abbrev;
+    const home = g.homeTeam.abbrev;
+    return [g.gameDate, `${away} ${g.awayTeam.score} @ ${home} ${g.homeTeam.score}`];
+  });
+  if (!rows.length) {
+    card.appendChild(el("div", "empty-state", "No games played yet."));
+    return card;
+  }
+  card.appendChild(dataTable(["Date", "Result"], rows, "h2h-table"));
+  return card;
+}
+
+function renderLastTen(awayGames, homeGames, awayAbbrev, homeAbbrev) {
+  const awayList = lastCompletedGames(awayGames, gameId, 10);
+  const homeList = lastCompletedGames(homeGames, gameId, 10);
+  if (!awayList.length && !homeList.length) return null;
+  const wrap = section("Last 10");
+  const grid = el("div", "preview-grid");
+  grid.appendChild(renderTeamLastGames(awayList, awayAbbrev));
+  grid.appendChild(renderTeamLastGames(homeList, homeAbbrev));
+  wrap.appendChild(grid);
+  return wrap;
+}
+
 async function computeLastFiveSummary(scheduleGames, abbrev, currentGameId) {
   const games = lastFiveCompletedGames(scheduleGames, currentGameId);
   if (!games.length) return null;
@@ -1868,6 +1909,14 @@ async function main() {
       lastFive.appendChild(lastFiveCard);
       root.appendChild(lastFive);
     }
+
+    const lastTen = renderLastTen(
+      awaySchedule?.games,
+      homeSchedule?.games,
+      away.abbrev,
+      home.abbrev,
+    );
+    if (lastTen) root.appendChild(lastTen);
 
     root.appendChild(
       renderEdges(
