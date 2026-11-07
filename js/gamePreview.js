@@ -676,7 +676,12 @@ function renderTeamLastGames(games, abbrev) {
     card.appendChild(el("div", "empty-state", "No games played yet."));
     return card;
   }
-  card.appendChild(dataTable(["Date", "Result"], rows, "h2h-table"));
+  const table = dataTable(["Date", "Result"], rows, "h2h-table");
+  table.querySelectorAll("tbody tr").forEach((tr, i) => {
+    tr.classList.add("clickable-game");
+    tr.addEventListener("click", () => openGameModal((games || [])[i]?.id));
+  });
+  card.appendChild(table);
   return card;
 }
 
@@ -1165,7 +1170,13 @@ function renderH2H(games, awayAbbrev, homeAbbrev) {
       `${awayAbbrev} ${awayWins} — ${homeWins} ${homeAbbrev}`,
     ),
   );
-  card.appendChild(dataTable(["Date", "Result"], rows, "h2h-table"));
+  const table = dataTable(["Date", "Result"], rows, "h2h-table");
+  const gameIds = meetings.map((g) => g.id);
+  table.querySelectorAll("tbody tr").forEach((tr, i) => {
+    tr.classList.add("clickable-game");
+    tr.addEventListener("click", () => openGameModal(gameIds[i]));
+  });
+  card.appendChild(table);
   wrap.appendChild(card);
   return wrap;
 }
@@ -1778,6 +1789,43 @@ function isRecapEligible(gameState) {
   return !["FUT", "PRE"].includes(gameState);
 }
 
+function openGameModal(gameId) {
+  if (!gameId) return;
+  const existing = document.querySelector(".game-modal-overlay");
+  if (existing) existing.remove();
+
+  const overlay = el("div", "game-modal-overlay");
+  const card = el("div", "game-modal-card");
+  const closeBtn = el("button", "game-modal-close", "×");
+  closeBtn.type = "button";
+  const frame = document.createElement("iframe");
+  frame.className = "game-modal-frame";
+  frame.src = `game.html?id=${encodeURIComponent(gameId)}`;
+  frame.title = "Game preview";
+
+  const close = () => {
+    overlay.remove();
+    document.body.style.overflow = "";
+  };
+  closeBtn.addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+  const onKey = (e) => {
+    if (e.key === "Escape") {
+      close();
+      document.removeEventListener("keydown", onKey);
+    }
+  };
+  document.addEventListener("keydown", onKey);
+
+  card.appendChild(closeBtn);
+  card.appendChild(frame);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+  document.body.style.overflow = "hidden";
+}
+
 function ordinalPeriod(n, type) {
   if (type && type !== "REG") return type === "OT" ? "OT" : type;
   if (n === 1) return "1st Period";
@@ -2289,6 +2337,12 @@ async function main() {
   const home = landing.homeTeam;
   const matchup = landing.matchup || {};
   gameSeason = landing.season || seasons[0];
+
+  document.title = `${
+    landing.gameState === "FUT" || landing.gameState === "PRE"
+      ? "Game Preview"
+      : "Game View"
+  } — Le Puckboard`;
 
   const awayRecord = matchup.goalieComparison?.awayTeam?.teamTotals?.record;
   const homeRecord = matchup.goalieComparison?.homeTeam?.teamTotals?.record;

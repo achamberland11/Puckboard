@@ -35,20 +35,26 @@ function buildNav() {
   return header;
 }
 
-const header = buildNav();
-document.body.prepend(header);
+const inFrame = window.self !== window.top;
 
-// Publish the nav height so the sticky filter bar and table header can park
-// below it (see base.css / app.js / table.css).
-const setNavHeight = () => {
-  document.documentElement.style.setProperty(
-    "--nav-height",
-    `${header.offsetHeight}px`,
-  );
-};
-setNavHeight();
-if ("ResizeObserver" in window) {
-  new ResizeObserver(setNavHeight).observe(header);
+if (inFrame) {
+  document.documentElement.style.setProperty("--nav-height", "0px");
 } else {
-  window.addEventListener("resize", setNavHeight);
+  const header = buildNav();
+  document.body.prepend(header);
+
+  // Publish the nav height so the sticky filter bar and table header can park
+  // below it (see base.css / app.js / table.css).
+  const setNavHeight = () => {
+    document.documentElement.style.setProperty(
+      "--nav-height",
+      `${header.offsetHeight}px`,
+    );
+  };
+  setNavHeight();
+  if ("ResizeObserver" in window) {
+    new ResizeObserver(setNavHeight).observe(header);
+  } else {
+    window.addEventListener("resize", setNavHeight);
+  }
 }
