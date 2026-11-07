@@ -254,6 +254,161 @@
   text-decoration: underline;
 }
 
+/* Tabbed views. */
+.view-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.view-tabs .button.active {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.game-view.hidden {
+  display: none;
+}
+
+/* Recap summary. */
+.summary-period {
+  font-weight: bold;
+  margin: 0.75rem 0 0.35rem;
+  color: var(--color-text-secondary);
+}
+
+.summary-goal {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--color-border, #2a2a2a);
+}
+
+.summary-headshot {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.summary-goal-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.summary-scorer {
+  font-weight: 600;
+}
+
+.summary-assists {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.summary-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-time {
+  font-size: 0.85rem;
+}
+
+.summary-score {
+  font-weight: 600;
+}
+
+.summary-badges {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.summary-badge {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  background: var(--color-surface, #1e1e1e);
+  color: var(--color-text-secondary);
+}
+
+.summary-badge.pp { color: #f5c542; }
+.summary-badge.pk { color: #e05a5a; }
+.summary-badge.en { color: #9aa0a6; }
+
+/* Game sheet. */
+.game-sheet-group {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.95rem;
+  color: var(--color-text-secondary);
+}
+
+.pbp-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.pbp-filters .button.active {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.pbp-period-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin: 0.75rem 0 0.35rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--color-surface, #1e1e1e);
+  border: 1px solid var(--color-border, #2a2a2a);
+  border-radius: 0.35rem;
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pbp-chevron {
+  font-size: 0.9rem;
+}
+
+.pbp-event {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.2rem 0;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--color-border, #2a2a2a);
+}
+
+.pbp-event.hidden {
+  display: none;
+}
+
+.pbp-period-events.collapsed {
+  display: none;
+}
+
+.pbp-period-empty {
+  display: none;
+}
+
+.pbp-time {
+  flex-shrink: 0;
+  width: 3.5rem;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pbp-desc {
+  flex: 1;
+}
+
 /* H2H. */
 .h2h-card {
   padding: 1rem 1.25rem;

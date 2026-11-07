@@ -707,6 +707,34 @@ async function loadGameLanding(gameId) {
   }
 }
 
+async function loadGameBoxscore(gameId) {
+  try {
+    const url = `/api-web/v1/gamecenter/${gameId}/boxscore`;
+    return await fetchWithCache(
+      url,
+      CACHE_KEY + "_game_boxscore_" + gameId,
+      SHORT_TTL,
+    );
+  } catch (err) {
+    console.error("Failed to load game boxscore:", err);
+    return null;
+  }
+}
+
+async function loadGamePlayByPlay(gameId) {
+  try {
+    const url = `/api-web/v1/gamecenter/${gameId}/play-by-play`;
+    return await fetchWithCache(
+      url,
+      CACHE_KEY + "_game_pbp_" + gameId,
+      SHORT_TTL,
+    );
+  } catch (err) {
+    console.error("Failed to load game play-by-play:", err);
+    return null;
+  }
+}
+
 async function loadClubSchedule(team) {
   try {
     const url = `/api-web/v1/club-schedule-season/${team}/now`;
@@ -760,6 +788,8 @@ export {
   loadTeamPowerPlay,
   loadTeamPenaltyKill,
   loadGameLanding,
+  loadGameBoxscore,
+  loadGamePlayByPlay,
   loadClubSchedule,
   loadPlayers,
   loadGoalies,

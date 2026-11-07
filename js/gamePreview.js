@@ -1,5 +1,7 @@
 import {
   loadGameLanding,
+  loadGameBoxscore,
+  loadGamePlayByPlay,
   loadTeamSummary,
   loadTeamPowerPlay,
   loadTeamPenaltyKill,
@@ -1772,6 +1774,505 @@ async function enrichPreview() {
   }
 }
 
+function isRecapEligible(gameState) {
+  return !["FUT", "PRE"].includes(gameState);
+}
+
+function ordinalPeriod(n, type) {
+  if (type && type !== "REG") return type === "OT" ? "OT" : type;
+  if (n === 1) return "1st Period";
+  if (n === 2) return "2nd Period";
+  if (n === 3) return "3rd Period";
+  return `Period ${n}`;
+}
+
+function renderViewTabs(recapContainer, previewContainer, defaultView) {
+  const tabs = el("div", "view-tabs");
+  const recapBtn = el("button", "button", "Recap");
+  const previewBtn = el("button", "button", "Head-to-Head");
+  recapBtn.type = "button";
+  previewBtn.type = "button";
+
+  const activate = (view) => {
+    recapBtn.classList.toggle("active", view === "recap");
+    previewBtn.classList.toggle("active", view === "preview");
+    recapContainer.classList.toggle("hidden", view !== "recap");
+    previewContainer.classList.toggle("hidden", view !== "preview");
+  };
+  recapBtn.addEventListener("click", () => activate("recap"));
+  previewBtn.addEventListener("click", () => activate("preview"));
+  tabs.appendChild(recapBtn);
+  tabs.appendChild(previewBtn);
+  activate(defaultView);
+  return tabs;
+}
+
+function fmtPct(value) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function aggregateBoxscore(players) {
+  const list = players || [];
+  const sum = (key) => list.reduce((acc, p) => acc + (Number(p[key]) || 0), 0);
+  return {
+    hits: sum("hits"),
+    blocked: sum("blockedShots"),
+    giveaways: sum("giveaways"),
+    takeaways: sum("takeaways"),
+    pim: sum("pim"),
+    sog: sum("sog"),
+  };
+}
+
+function renderGameStats(landing, away, home, boxscore, playByPlay) {
+  const wrap = section("Game stats");
+  const card = el("div", "card");
+  const awayStats = boxscore?.playerByGameStats?.awayTeam || {};
+  const homeStats = boxscore?.playerByGameStats?.homeTeam || {};
+  const awayAgg = aggregateBoxscore([
+    ...(awayStats.forwards || []),
+    ...(awayStats.defense || []),
+    ...(awayStats.goalies || []),
+  ]);
+  const homeAgg = aggregateBoxscore([
+    ...(homeStats.forwards || []),
+    ...(homeStats.defense || []),
+    ...(homeStats.goalies || []),
+  ]);
+
+  // faceoffs from play-by-play
+  const roster = playByPlay?.rosterSpots || [];
+  const teamOfPlayer = new Map(roster.map((p) => [p.playerId, p.teamId]));
+  const awayTeamId = away.id;
+  const homeTeamId = home.id;
+  let awayFoWins = 0;
+  let homeFoWins = 0;
+  for (const ev of playByPlay?.plays || []) {
+    if (ev.typeDescKey !== "faceoff") continue;
+    const winnerTeam = teamOfPlayer.get(ev.details?.winningPlayerId);
+    if (winnerTeam === awayTeamId) awayFoWins++;
+    else if (winnerTeam === homeTeamId) homeFoWins++;
+  }
+  const foTotal = awayFoWins + homeFoWins;
+  const awayFoPct = foTotal > 0 ? awayFoWins / foTotal : null;
+  const homeFoPct = foTotal > 0 ? homeFoWins / foTotal : null;
+
+  // PP efficiency
+  const scoring = landing.summary?.scoring || [];
+  let awayPPG = 0;
+  let homePPG = 0;
+  for (const period of scoring) {
+    for (const goal of period.goals || []) {
+      if (goal.strength !== "pp") continue;
+      if (goal.teamAbbrev?.default === away.abbrev) awayPPG++;
+      else if (goal.teamAbbrev?.default === home.abbrev) homePPG++;
+    }
+  }
+  const penalties = landing.summary?.penalties || [];
+  let awayPPO = 0;
+  let homePPO = 0;
+  for (const period of penalties) {
+    for (const pen of period.penalties || []) {
+      const committed = pen.teamAbbrev?.default;
+      if (committed === home.abbrev) awayPPO++;
+      else if (committed === away.abbrev) homePPO++;
+    }
+  }
+  const awayPPEff = awayPPO > 0 ? awayPPG / awayPPO : null;
+  const homePPEff = homePPO > 0 ? homePPG / homePPO : null;
+
+  const awaySog = landing.awayTeam?.sog ?? boxscore?.awayTeam?.sog ?? awayAgg.sog;
+  const homeSog = landing.homeTeam?.sog ?? boxscore?.homeTeam?.sog ?? homeAgg.sog;
+
+  const rows = [
+    ["Shots on goal", awaySog, homeSog],
+    ["Face-off %", fmtPct(awayFoPct), fmtPct(homeFoPct)],
+    ["PP efficiency", fmtPct(awayPPEff), fmtPct(homePPEff)],
+    ["PK minutes (PIM)", awayAgg.pim, homeAgg.pim],
+    ["Hits", awayAgg.hits, homeAgg.hits],
+    ["Blocked shots", awayAgg.blocked, homeAgg.blocked],
+    ["Giveaways", awayAgg.giveaways, homeAgg.giveaways],
+    ["Takeaways", awayAgg.takeaways, homeAgg.takeaways],
+  ];
+  card.appendChild(dataTable(["Stat", away.abbrev, home.abbrev], rows, "h2h-table"));
+  wrap.appendChild(card);
+  return wrap;
+}
+
+function renderSummary(landing, away, home) {
+  const wrap = section("Summary");
+  const scoring = landing.summary?.scoring || [];
+  if (!scoring.length) {
+    wrap.appendChild(el("div", "card empty-state", "No scoring events yet."));
+    return wrap;
+  }
+  const card = el("div", "card");
+  for (const period of scoring) {
+    card.appendChild(
+      el("div", "summary-period", ordinalPeriod(period.periodDescriptor?.number, period.periodDescriptor?.periodType)),
+    );
+    for (const goal of period.goals || []) {
+      const row = el("div", "summary-goal");
+      if (goal.headshot) {
+        const img = document.createElement("img");
+        img.src = goal.headshot;
+        img.alt = "";
+        img.className = "summary-headshot";
+        img.loading = "lazy";
+        row.appendChild(img);
+      } else {
+        row.appendChild(el("div", "summary-headshot"));
+      }
+      const body = el("div", "summary-goal-body");
+      const scorer = el("div", "summary-scorer");
+      scorer.textContent = `${goal.name?.default || ""} (${goal.goalsToDate ?? 0})`;
+      body.appendChild(scorer);
+      const assists = goal.assists || [];
+      if (assists.length) {
+        const a = el("div", "summary-assists");
+        a.textContent = assists
+          .map((x) => `${x.name?.default || ""} (${x.assistsToDate ?? 0})`)
+          .join(", ");
+        body.appendChild(a);
+      }
+      row.appendChild(body);
+
+      const meta = el("div", "summary-meta");
+      meta.appendChild(el("span", "summary-time", goal.timeInPeriod || ""));
+      meta.appendChild(
+        el("span", "summary-score", `${goal.awayScore}-${goal.homeScore}`),
+      );
+      const badges = el("div", "summary-badges");
+      if (goal.strength === "pp")
+        badges.appendChild(el("span", "summary-badge pp", "PP"));
+      else if (goal.strength === "sh")
+        badges.appendChild(el("span", "summary-badge pk", "PK"));
+      if (goal.goalModifier === "empty-net")
+        badges.appendChild(el("span", "summary-badge en", "EN"));
+      meta.appendChild(badges);
+      row.appendChild(meta);
+      card.appendChild(row);
+    }
+  }
+  wrap.appendChild(card);
+  return wrap;
+}
+
+function playerHeadshotMap(playByPlay) {
+  const map = new Map();
+  for (const spot of playByPlay?.rosterSpots || []) {
+    map.set(spot.playerId, spot.headshot);
+  }
+  return map;
+}
+
+function sortSkaters(a, b) {
+  return (
+    (b.points || 0) - (a.points || 0) ||
+    (b.goals || 0) - (a.goals || 0) ||
+    (b.assists || 0) - (a.assists || 0) ||
+    (b.sog || 0) - (a.sog || 0) ||
+    String(a.name?.default || "").localeCompare(String(b.name?.default || ""))
+  );
+}
+
+function renderGameSheet(boxscore, playByPlay, away, home) {
+  const wrap = section("Game sheet");
+  const card = el("div", "card");
+  const headshots = playerHeadshotMap(playByPlay);
+  const teams = [
+    { key: "away", label: away.abbrev, data: boxscore?.playerByGameStats?.awayTeam },
+    { key: "home", label: home.abbrev, data: boxscore?.playerByGameStats?.homeTeam },
+  ];
+
+  const tabs = el("div", "view-tabs");
+  const body = el("div", "game-sheet-body");
+  const renderTeam = (team) => {
+    body.innerHTML = "";
+    if (!team?.data) {
+      body.appendChild(el("div", "empty-state", "No player data available."));
+      return;
+    }
+    const groups = [
+      ["Forwards", team.data.forwards || []],
+      ["Defensemen", team.data.defense || []],
+      ["Goalies", team.data.goalies || []],
+    ];
+    for (const [label, players] of groups) {
+      if (!players.length) continue;
+      body.appendChild(el("h3", "game-sheet-group", label));
+      if (label === "Goalies") {
+        const sorted = [...players].sort(
+          (a, b) => (b.saves || 0) - (a.saves || 0) || String(a.name?.default || "").localeCompare(String(b.name?.default || "")),
+        );
+        const rows = sorted.map((p) => {
+          const cell = el("div", "player-cell");
+          const hs = headshots.get(p.playerId);
+          if (hs) {
+            const img = document.createElement("img");
+            img.src = hs;
+            img.alt = "";
+            img.loading = "lazy";
+            cell.appendChild(img);
+          }
+          cell.appendChild(el("span", null, `${p.name?.default || ""} #${p.sweaterNumber}`));
+          const svPct = p.savePctg != null ? (Number(p.savePctg) * 100).toFixed(1) + "%" : "—";
+          return [cell, p.shotsAgainst ?? "—", p.saves ?? "—", svPct, p.goalsAgainst ?? "—", p.toi || "—", p.decision || "—"];
+        });
+        body.appendChild(dataTable(["Player", "SA", "SV", "SV%", "GA", "TOI", "Dec"], rows, "h2h-table"));
+      } else {
+        const sorted = [...players].sort(sortSkaters);
+        const rows = sorted.map((p) => {
+          const cell = el("div", "player-cell");
+          const hs = headshots.get(p.playerId);
+          if (hs) {
+            const img = document.createElement("img");
+            img.src = hs;
+            img.alt = "";
+            img.loading = "lazy";
+            cell.appendChild(img);
+          }
+          cell.appendChild(el("span", null, `${p.name?.default || ""} #${p.sweaterNumber}`));
+          const plusMinus = p.plusMinus > 0 ? `+${p.plusMinus}` : p.plusMinus;
+          return [cell, p.goals ?? 0, p.assists ?? 0, p.points ?? 0, plusMinus, p.sog ?? 0, p.hits ?? 0, p.toi || "—"];
+        });
+        body.appendChild(dataTable(["Player", "G", "A", "Pts", "+/-", "SOG", "Hits", "TOI"], rows, "h2h-table"));
+      }
+    }
+  };
+
+  teams.forEach((t, i) => {
+    const btn = el("button", "button", t.label);
+    btn.type = "button";
+    if (i === 0) btn.classList.add("active");
+    btn.addEventListener("click", () => {
+      tabs.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      renderTeam(t);
+    });
+    tabs.appendChild(btn);
+  });
+  card.appendChild(tabs);
+  card.appendChild(body);
+  renderTeam(teams[0]);
+  wrap.appendChild(card);
+  return wrap;
+}
+
+function describePlayEvent(ev, playerMap, teamMap) {
+  const details = ev.details || {};
+  const playerName = (id) => {
+    const p = playerMap.get(id);
+    return p ? `${p.firstName?.default || ""} ${p.lastName?.default || ""}`.trim() : (id ? `#${id}` : "");
+  };
+  const teamAbbrev = (teamId) => teamMap.get(teamId) || "";
+  const owner = teamAbbrev(details.eventOwnerTeamId || ev.eventOwnerTeamId);
+
+  switch (ev.typeDescKey) {
+    case "goal": {
+      const scorer = playerName(details.scoringPlayerId);
+      const assists = [details.assist1PlayerId, details.assist2PlayerId].filter(Boolean).map(playerName);
+      const assistText = assists.length ? ` (${assists.join(", ")})` : "";
+      const strength = details.strength ? details.strength.toUpperCase() : "";
+      const en = details.goalModifier === "empty-net" ? " EN" : "";
+      return `${owner} GOAL - ${scorer}${assistText} ${details.awayScore}-${details.homeScore}${strength ? " [" + strength + "]" : ""}${en}`;
+    }
+    case "shot-on-goal":
+      return `${owner} Shot on goal - ${playerName(details.shootingPlayerId)}`;
+    case "missed-shot":
+      return `${owner} Missed shot - ${playerName(details.shootingPlayerId)}${details.reason ? " (" + details.reason + ")" : ""}`;
+    case "blocked-shot":
+      return `${owner} Blocked shot - ${playerName(details.shootingPlayerId)} blocked by ${playerName(details.blockingPlayerId)}`;
+    case "penalty":
+      return `${owner} Penalty - ${playerName(details.committedByPlayerId)} (${details.descKey || "penalty"}${details.duration ? ", " + details.duration + " min" : ""})`;
+    case "hit":
+      return `${owner} Hit - ${playerName(details.hittingPlayerId)} on ${playerName(details.hitteePlayerId)}`;
+    case "giveaway":
+      return `${owner} Giveaway - ${playerName(details.playerId)}`;
+    case "takeaway":
+      return `${owner} Takeaway - ${playerName(details.playerId)}`;
+    case "faceoff": {
+      const w = playerName(details.winningPlayerId);
+      const l = playerName(details.losingPlayerId);
+      return `${owner} Faceoff - ${w} won vs ${l}${details.zoneCode ? " (" + details.zoneCode + ")" : ""}`;
+    }
+    case "stoppage":
+      return `${owner} Stoppage - ${details.reason || ""}`.trim();
+    case "period-end":
+      return `End of ${ordinalPeriod(ev.periodDescriptor?.number, ev.periodDescriptor?.periodType)}`;
+    case "period-start":
+      return `Start of ${ordinalPeriod(ev.periodDescriptor?.number, ev.periodDescriptor?.periodType)}`;
+    case "game-end":
+      return "Game end";
+    default:
+      return `${owner} ${ev.typeDescKey}`;
+  }
+}
+
+function renderPlayByPlay(playByPlay, landing) {
+  const wrap = section("Play-by-play");
+  const plays = playByPlay?.plays || [];
+  if (!plays.length) {
+    wrap.appendChild(el("div", "card empty-state", "No play-by-play available."));
+    return wrap;
+  }
+  const card = el("div", "card");
+  const playerMap = new Map((playByPlay.rosterSpots || []).map((p) => [p.playerId, p]));
+  const teamMap = new Map();
+  if (landing?.awayTeam) teamMap.set(landing.awayTeam.id, landing.awayTeam.abbrev);
+  if (landing?.homeTeam) teamMap.set(landing.homeTeam.id, landing.homeTeam.abbrev);
+
+  const FILTERS = [
+    { key: "everything", label: "Everything" },
+    { key: "goals", label: "Goals" },
+    { key: "shotattempts", label: "Shot attempts" },
+    { key: "sog", label: "SOG" },
+    { key: "penalties", label: "Penalties" },
+    { key: "hits", label: "Hits" },
+    { key: "faceoffs", label: "Faceoffs" },
+    { key: "giveaways", label: "Giveaways" },
+    { key: "takeaways", label: "Takeaways" },
+    { key: "other", label: "Other" },
+  ];
+  const NON_EVERYTHING = FILTERS.map((f) => f.key).filter((k) => k !== "everything");
+
+  function categoryOf(ev) {
+    switch (ev.typeDescKey) {
+      case "goal":
+        return "goals";
+      case "shot-on-goal":
+        return "sog"; // also shot attempt
+      case "missed-shot":
+      case "blocked-shot":
+        return "shotattempts";
+      case "penalty":
+        return "penalties";
+      case "hit":
+        return "hits";
+      case "faceoff":
+        return "faceoffs";
+      case "giveaway":
+        return "giveaways";
+      case "takeaway":
+        return "takeaways";
+      default:
+        return "other";
+    }
+  }
+
+  // filter state
+  const activeFilters = new Set(["everything"]);
+  const collapsedPeriods = new Set();
+
+  const filterBar = el("div", "pbp-filters");
+  const filterButtons = new Map();
+  for (const f of FILTERS) {
+    const btn = el("button", "button", f.label);
+    btn.type = "button";
+    if (f.key === "everything") btn.classList.add("active");
+    btn.addEventListener("click", () => {
+      if (f.key === "everything") {
+        activeFilters.clear();
+        activeFilters.add("everything");
+      } else {
+        if (activeFilters.has("everything")) {
+          activeFilters.clear();
+          activeFilters.add(f.key);
+        } else if (activeFilters.has(f.key)) {
+          activeFilters.delete(f.key);
+          if (activeFilters.size === 0) activeFilters.add("everything");
+        } else {
+          activeFilters.add(f.key);
+          // if all non-everything selected, collapse to everything
+          if (NON_EVERYTHING.every((k) => activeFilters.has(k))) {
+            activeFilters.clear();
+            activeFilters.add("everything");
+          }
+        }
+      }
+      syncFilterButtons();
+      applyFilters();
+    });
+    filterButtons.set(f.key, btn);
+    filterBar.appendChild(btn);
+  }
+  card.appendChild(filterBar);
+
+  function syncFilterButtons() {
+    for (const f of FILTERS) {
+      const btn = filterButtons.get(f.key);
+      btn.classList.toggle("active", activeFilters.has(f.key));
+    }
+  }
+
+  // period blocks
+  const periodBlocks = new Map(); // periodKey -> { header, events }
+  let currentPeriod = null;
+  let currentEvents = null;
+  for (const ev of plays) {
+    const pd = ev.periodDescriptor || {};
+    const periodKey = `${pd.number}-${pd.periodType}`;
+    if (periodKey !== currentPeriod) {
+      currentPeriod = periodKey;
+      const header = el("button", "pbp-period-header", ordinalPeriod(pd.number, pd.periodType));
+      header.type = "button";
+      const chevron = el("span", "pbp-chevron", "▾");
+      header.appendChild(chevron);
+      const eventsWrap = el("div", "pbp-period-events");
+      header.addEventListener("click", () => {
+        if (collapsedPeriods.has(periodKey)) collapsedPeriods.delete(periodKey);
+        else collapsedPeriods.add(periodKey);
+        eventsWrap.classList.toggle("collapsed", collapsedPeriods.has(periodKey));
+        chevron.textContent = collapsedPeriods.has(periodKey) ? "▸" : "▾";
+      });
+      card.appendChild(header);
+      card.appendChild(eventsWrap);
+      periodBlocks.set(periodKey, { header, eventsWrap });
+      currentEvents = eventsWrap;
+    }
+    const row = el("div", "pbp-event");
+    const cat = categoryOf(ev);
+    row.dataset.category = cat;
+    // shot-on-goal belongs to both shotattempts and sog
+    if (ev.typeDescKey === "shot-on-goal") row.dataset.category = "sog shotattempts";
+    row.appendChild(el("span", "pbp-time", ev.timeInPeriod || ""));
+    row.appendChild(el("span", "pbp-desc", describePlayEvent(ev, playerMap, teamMap)));
+    currentEvents.appendChild(row);
+  }
+
+  function applyFilters() {
+    const everything = activeFilters.has("everything");
+    for (const row of card.querySelectorAll(".pbp-event")) {
+      const cats = (row.dataset.category || "").split(/\s+/);
+      const visible = everything || cats.some((c) => activeFilters.has(c));
+      row.classList.toggle("hidden", !visible);
+    }
+    // hide period blocks with no visible events
+    for (const { eventsWrap } of periodBlocks.values()) {
+      const hasVisible = Array.from(eventsWrap.querySelectorAll(".pbp-event")).some(
+        (r) => !r.classList.contains("hidden"),
+      );
+      eventsWrap.classList.toggle("pbp-period-empty", !hasVisible);
+      const header = eventsWrap.previousElementSibling;
+      if (header) header.classList.toggle("pbp-period-empty", !hasVisible);
+    }
+  }
+
+  applyFilters();
+  wrap.appendChild(card);
+  return wrap;
+}
+
+function renderRecap(landing, away, home, boxscore, playByPlay) {
+  const container = el("div", "game-view game-view-recap");
+  container.appendChild(renderGameStats(landing, away, home, boxscore, playByPlay));
+  container.appendChild(renderSummary(landing, away, home));
+  container.appendChild(renderGameSheet(boxscore, playByPlay, away, home));
+  container.appendChild(renderPlayByPlay(playByPlay, landing));
+  return container;
+}
+
 async function main() {
   if (!gameId) {
     showError("No game selected. Open a matchup from the Games page.");
@@ -1794,6 +2295,10 @@ async function main() {
 
   root.innerHTML = "";
   root.appendChild(renderHeader(landing, awayRecord, homeRecord));
+
+  const eligible = isRecapEligible(landing.gameState);
+  const previewContainer = el("div", "game-view game-view-preview");
+  const recapContainer = eligible ? el("div", "game-view game-view-recap") : null;
 
   const [
     teamSummary,
@@ -1894,7 +2399,7 @@ async function main() {
       compareTable(awayCompare, homeCompare, away.abbrev, home.abbrev),
     );
     compare.appendChild(card);
-    root.appendChild(compare);
+    previewContainer.appendChild(compare);
 
     const [awayLast5, homeLast5] = await Promise.all([
       computeLastFiveSummary(awaySchedule?.games, away.abbrev, gameId),
@@ -1907,7 +2412,7 @@ async function main() {
         compareTable(awayLast5, homeLast5, away.abbrev, home.abbrev),
       );
       lastFive.appendChild(lastFiveCard);
-      root.appendChild(lastFive);
+      previewContainer.appendChild(lastFive);
     }
 
     const lastTen = renderLastTen(
@@ -1916,9 +2421,9 @@ async function main() {
       away.abbrev,
       home.abbrev,
     );
-    if (lastTen) root.appendChild(lastTen);
+    if (lastTen) previewContainer.appendChild(lastTen);
 
-    root.appendChild(
+    previewContainer.appendChild(
       renderEdges(
         buildEdges(
           awayCompare,
@@ -1947,7 +2452,7 @@ async function main() {
     goalieCard(homeGoalie, home, `${home.abbrev} — starter`, landing.gameDate),
   );
     goalieWrap.appendChild(goalieGrid);
-    root.appendChild(goalieWrap);
+    previewContainer.appendChild(goalieWrap);
   }
 
   const [awayGoalieForm, homeGoalieForm] = await Promise.all([
@@ -1960,21 +2465,46 @@ async function main() {
     away.abbrev,
     home.abbrev,
   );
-  if (starterForm) root.appendChild(starterForm);
+  if (starterForm) previewContainer.appendChild(starterForm);
 
-  root.appendChild(renderH2H(awaySchedule?.games, away.abbrev, home.abbrev));
+  previewContainer.appendChild(renderH2H(awaySchedule?.games, away.abbrev, home.abbrev));
 
   const hot = renderHotPlayers(matchup, away.abbrev, home.abbrev);
-  if (hot) root.appendChild(hot);
+  if (hot) previewContainer.appendChild(hot);
 
   const career = renderCareerVsOpponent(matchup, away, home);
-  if (career) root.appendChild(career);
+  if (career) previewContainer.appendChild(career);
 
   const top = renderTopPlayers(matchup, away, home);
-  if (top) root.appendChild(top);
+  if (top) previewContainer.appendChild(top);
 
   const goalieTables = renderGoalieTables(matchup, away, home);
-  if (goalieTables) root.appendChild(goalieTables);
+  if (goalieTables) previewContainer.appendChild(goalieTables);
+
+  if (eligible) {
+    const [boxscore, playByPlay] = await Promise.all([
+      loadGameBoxscore(gameId),
+      loadGamePlayByPlay(gameId),
+    ]);
+    recapContainer.appendChild(
+      renderRecap(landing, away, home, boxscore, playByPlay),
+    );
+  }
+
+  if (eligible && recapContainer) {
+    const tabs = renderViewTabs(recapContainer, previewContainer, "recap");
+    root.appendChild(tabs);
+  }
+  const content = el("div", "game-content");
+  content.appendChild(previewContainer);
+  if (recapContainer) content.appendChild(recapContainer);
+  root.appendChild(content);
+
+  if (eligible && recapContainer) {
+    // default handled in renderViewTabs
+  } else {
+    previewContainer.classList.remove("hidden");
+  }
 
   // Tiers, GVI and MoneyPuck advanced columns fill in progressively.
   enrichPreview();
